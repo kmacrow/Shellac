@@ -40,7 +40,7 @@ You should grab the latest release <a href="https://github.com/kmacrow/Shellac/r
 	<dd><a href="#">@k16w</a></dd>
 </dl>
 
-Shellac is Copyright &copy; Kalan MacRow, 2013 &mdash; Licensed under The MIT License (MIT)
+Copyright &copy; Kalan MacRow, 2013 &mdash; Licensed under The MIT License (MIT)
 
 
 
