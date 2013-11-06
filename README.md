@@ -29,9 +29,22 @@ This section has yet to be written. I intend to do at least a cursory evaluation
 
 ## Getting started
 
-You should grab the latest release <a href="https://github.com/kmacrow/Shellac/releases">here</a>, unpack it and follow these instructions:
+Shellac is built and tested on Ubuntu 12.04 (Precise). You should grab the latest release <a href="https://github.com/kmacrow/Shellac/releases">here</a>, and do the usual thing:
 
-<i>Todo: write instructions here.</i>
+```bash
+$ tar -xvzf shellac-x.x.x.tar.gz
+$ cd shallac-x.x.x
+$ ./configure
+$ make
+$ sudo make install
+```
+And then to run the server,
+
+```bash
+$ python -m SimpleHTTPServer 8080
+$ sudo shellac --origin localhost:8080 
+```
+See <code>shellac -h</code> for more options and details.
 
 ## Contributors
 
