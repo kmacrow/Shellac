@@ -33,7 +33,7 @@ Shellac is built and tested on Ubuntu 12.04 (Precise). You should grab the lates
 
 ```bash
 $ tar -xvzf shellac-x.x.x.tar.gz
-$ cd shallac-x.x.x
+$ cd shellac-x.x.x
 $ ./configure
 $ make
 $ sudo make install
