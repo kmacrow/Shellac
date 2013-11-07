@@ -6,6 +6,8 @@
 # Packages
 *.egg
 *.egg-info
+Vagrantfile
+.vagrant
 dist
 build
 eggs
