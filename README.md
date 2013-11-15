@@ -36,6 +36,7 @@ Shellac is built and tested on Ubuntu 12.04 (Precise). You should grab the lates
 ```bash
 $ tar -xvzf Shellac-x.x.x.tar.gz
 $ cd Shellac-x.x.x
+$ ./devenv
 $ python setup.py install
 ```
 And then to run the server,
