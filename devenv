@@ -1,7 +1,12 @@
 #!/usr/bin/env bash
 
 apt-get update
-apt-get install build-essential python-dev python-pip memcached libmemcached-dev
+apt-get install build-essential \
+				python-dev \
+				python-pip \
+				memcached \
+				libmemcached-dev \
+				apache2-utils
 
 pip install cython
 
