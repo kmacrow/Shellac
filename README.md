@@ -14,11 +14,15 @@ At its core Shellac is a high-performance, event-driven HTTP/1.1 proxy server de
 
 ## Performance
 
-Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough sketch</b> of the graph that I would <i>like</i> to be able to draw (eventually with the axes labelled!): 
+Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough sketch</b> of one of the graphs that I would <i>like</i> to be able to draw (eventually with the axes labelled!). Another version of this graph might show the memory usage to be the same but a much higher RPS for Shellac, if the working set were large enough. 
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/Shellac.png" />
 
-Shellac has a fundamentally more scalable architecture than Varnish. It is event-driven and aggressively avoids copying data into user space. Also, just intuitively, the hit rate for a distributed cache will be higher than <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the handling server has generated it). Upstream applications are sufficiently slow as to make retrieving objects from memory on neighboring machines faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster. This makes more RAM available on each machine, improving web server and application performance.  
+<b>Overview</b>
+Shellac has a fundamentally more scalable architecture than Varnish. It is event-driven and aggressively avoids copying data into user space. Also, just intuitively, the hit rate for a distributed cache will be higher than <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the handling server has generated it). Upstream applications are sufficiently slow as to make retrieving objects from memory on neighboring machines faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster: if your working set is 1 GB, then it is spread across all machines instead of duplicated on each one.
+
+<b>Optimization</b>
+Shellac uses consistent hashing to avoid rebuilding the entire cache in the event of node failure, however, no effort is made to improve locality. The current prototype does not support session tagging/routing, but if it did one could imagine caching accessed objects locally to improve locality for future requests in the same session. This is future work.  
 
 ## Configurations
 
