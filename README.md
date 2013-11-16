@@ -14,7 +14,7 @@ At its core Shellac is a high-performance, event-driven HTTP/1.1 proxy server de
 
 ## Performance
 
-Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough sketch</b> of one of the graphs that I would <i>like</i> to be able to draw (eventually with the axes labelled!). Another version of this graph might show the memory usage to be the same but a much higher RPS for Shellac, if the working set were large enough. 
+Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough sketch</b> of one of the graphs that I would <i>like</i> to be able to draw (eventually with the axes labelled!). Another version of this graph might show the memory usage to be the same but a much higher RPS for Shellac, if the quantity of cacheable content were large enough. 
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/Shellac.png" />
 
