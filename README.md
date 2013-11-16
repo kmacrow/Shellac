@@ -18,7 +18,7 @@ Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/Shellac.png" />
 
-Shellac has a fundamentally more efficient architecture than Varnish. It is event driven and aggressively avoids copying data into userspace. Also, just intuitively, the hit rate for a distributed cache will be higher than <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the handling server has generated it). Upstream applications are sufficiently slow as to make retrieving objects from memory on neighboring machines faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster. This makes more RAM available on each machine, improving web server and application performance.  
+Shellac has a fundamentally more scalable architecture than Varnish. It is event-driven and aggressively avoids copying data into user space. Also, just intuitively, the hit rate for a distributed cache will be higher than <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the handling server has generated it). Upstream applications are sufficiently slow as to make retrieving objects from memory on neighboring machines faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster. This makes more RAM available on each machine, improving web server and application performance.  
 
 ## Configurations
 
