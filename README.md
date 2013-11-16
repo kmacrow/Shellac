@@ -6,7 +6,7 @@ Slides can be found <a href="http://goo.gl/OGjlVW">here</a>.
 
 ## Background
 
-Web accelerators have become quite popular for scaling web services, especially where expensive page rendering is involved. They can provide a performance boost by serving requests directly from memory, and help squeeze more out of web servers and applications by sheltering them from uncessary work. Traditionally, acclerators have been designed to use extra memory on a single machine to cache for a single web server. A service that load balances traffic across 8 web servers likely has 8 separate caches, one in front of each server. <i>Shellac introduces a server that is both performant enough to act as a load balancer and incorporates a distributed cache.</i> 
+Web accelerators have become quite popular for scaling web services, especially where expensive page rendering is involved. They can provide a performance boost by serving requests directly from memory, and help squeeze more out of web servers and applications by sheltering them from uncessary work. Traditionally, acclerators have been designed to use extra memory on a single machine to cache for a single web server. A service that load balances traffic across 8 web servers likely has 8 separate caches, one in front of each server. By contrast, Shellac attempts to be fast enough to cache for many upstream servers and instead of maintaining separate caches, creates a single logical cache out of extra memory across the cluster.  
 
 ## Architecture
 
@@ -14,7 +14,7 @@ At its core Shellac is a high-performance, event-driven HTTP/1.1 proxy server de
 
 ## Performance
 
-Actual benchmarks will be forthcoming. In the meantime, below is the graph that I would <i>like</i> to be able to draw (eventually with the axes labelled!):
+Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough sketch</b> of the graph that I would <i>like</i> to be able to draw (eventually with the axes labelled!): 
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/Shellac.png" />
 
