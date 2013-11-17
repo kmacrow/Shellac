@@ -19,22 +19,31 @@ Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough
 <img src="https://dl.dropboxusercontent.com/u/55111805/Shellac.png" />
 
 <b>Overview</b>
+
 Shellac has a fundamentally more scalable architecture than Varnish. It is event-driven and aggressively avoids copying data into user space. Also, just intuitively, the hit rate for a distributed cache will be higher than <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the handling server has generated it). Upstream applications are sufficiently slow as to make retrieving objects from memory on neighboring machines faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster: if your working set is 1 GB, then it is spread across all machines instead of duplicated on each one.
 
 <b>Optimization</b>
+
 Shellac uses consistent hashing to avoid rebuilding the entire cache in the event of node failure, however, no effort is made to improve locality. The current prototype does not support session tagging/routing, but if it did one could imagine caching accessed objects locally to improve locality for future requests in the same session. This is future work.  
+
+<b>Benchmarks</b>
+
+There are a handful of benchmarks that I'm interested in graphing to evaluate Shellac. First of all I'd like to benchmark RPS for Nginx on its own, and then put Shellac in front of it (without caching) to get a lower-bound on Shellac's overhead. With that I would like to look at Shellac vs. Varnish with a single web server, and then multiple servers using HAproxy to load balance. Finally, it would be interesting to compare Shellac and HAproxy itself. I would not expect the Shellac prototype to fare well against the battle-hardened HAproxy, but it might give some indication of the Python overhead.
 
 ## Configurations
 
 There are two distinct ways to use Shellac, and a third hybrid option. There are range of possible configurations and trade-offs. 
 
 <b>Accelerator</b>
+
 You can replace each instance of Varnish with Shellac to increase vertical scalability and free up RAM for your web servers and applications.
 
 <b>Load balancer</b>
+
 You can use Shellac as a load balancer for your backend web servers to scale out and increase availability.
 
 <b>Accelerator + load balancer</b>
+
 You can put an instance of Shellac in front of all of your backend servers and use their (or other machines' memory) as a single cache.
 
 ## Getting started
