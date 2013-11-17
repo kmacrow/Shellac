@@ -28,11 +28,13 @@ Shellac uses consistent hashing to avoid rebuilding the entire cache in the even
 
 <b>Benchmarks</b>
 
-There are a handful of benchmarks that I'm interested in graphing to evaluate Shellac. First of all I'd like to benchmark RPS for Nginx on its own, and then put Shellac in front of it (without caching) to get a lower-bound on Shellac's overhead. With that I would like to look at Shellac vs. Varnish with a single web server, and then multiple servers using HAproxy to load balance. Finally, it would be interesting to compare Shellac and HAproxy itself. I would not expect the Shellac prototype to fare well against the battle-hardened HAproxy, but it might give some indication of the Python overhead.
+My plan is to use Apache's <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a> for benchmarking.
+
+First of all, I'd like to benchmark RPS for Nginx on its own, and then put Shellac in front of it (without caching) to get a lower-bound on Shellac's overhead. With that I would like to look at Shellac vs. Varnish with a single web server, and then multiple servers using HAproxy to load balance. Finally, it would be interesting to compare Shellac and HAproxy itself. I would not expect the Shellac prototype to fare well against the battle-hardened HAproxy, but it might give some indication of the Python overhead.
 
 ## Configurations
 
-There are two distinct ways to use Shellac, and a third hybrid option. There are range of possible configurations and trade-offs. 
+There are two distinct ways to use Shellac, and a third hybrid option. In all cases there is an opportunity to transform or analyze objects before they are cached. Shellac currently doesn't take advantage of the opportunity to do anything smart. 
 
 <b>Accelerator</b>
 
