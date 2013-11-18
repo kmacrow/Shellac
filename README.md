@@ -1,4 +1,4 @@
-# Shellac: A distributed web "accelerator"
+# Shellac: a distributed web "accelerator"
 
 Shellac is an HTTP/1.1 caching proxy for Linux. It is designed to handle thousands of client connections at once, and aggressively cache content in a distributed pool of memory. Shellac can be used in a number of different configurations. In the simplest setup it can provide conceptually similar functionality to <a href="https://www.varnish-cache.org">Varnish</a> and <a href="http://www.squid-cache.org">Squid</a>: a single-host cache for one or more web servers. But owing to an event-driven architecture not unlike <a href="http://nginx.com">Nginx</a> and <a href="http://haproxy.1wt.eu">HAproxy</a>, you can safely put Shellac in front of many more origin servers than you could Varnish or Squid. Also, Shellac allows you to grow your cache capacity well beyond a single host: in fact, it will let you "glue" together extra memory on as many machines as you can afford. 
 
