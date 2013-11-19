@@ -2,9 +2,13 @@
 
 import os
 import sys
+import signal
 import argparse
 import logging
 import socket, select
+import pylibmc
+from http_parser.parser import HttpParser
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +41,8 @@ class Server(object):
 
         self._epoll.register(fileno, select.EPOLLIN)
         self._connections[fileno] = connection
-        self._requests[fileno]    = b''
-        self._responses[fileno]   = b''
+        self._requests[fileno]    = HttpParser()
+        self._responses[fileno]   = b'HTTP/1.0 200 OK\r\nContent-type: text/plain\r\nContent-Length: 6\r\nConnection: close\r\n\r\nHello+'
     
     def _close_connection(self, fileno):
 
@@ -53,15 +57,19 @@ class Server(object):
         if len(self._responses[fileno]) == 0:
             self._epoll.modify(fileno, 0)
             self._connections[fileno].shutdown(socket.SHUT_RDWR)
+            del self._requests[fileno]
+            del self._responses[fileno]
 
     def _read_request(self, fileno):
 
-        self._requests[fileno] += self._connections[fileno].recv(4096)
-        if '\r\n\r\n' in self._requests[fileno]:
+        data = self._connections[fileno].recv(4096)
+        self._requests[fileno].execute(data, len(data))
+
+        if self._requests[fileno].is_headers_complete():
             self._epoll.modify(fileno, select.EPOLLOUT)
                 
 
-    def run():
+    def run(self):
         
         try:
             while True:
@@ -81,7 +89,7 @@ class Server(object):
                         self._close_connection(fileno)
                     
         finally:
-            self._epoll.unregister(serversocket.fileno())
+            self._epoll.unregister(self._socket.fileno())
             self._epoll.close()
             self._socket.close()
 
@@ -92,10 +100,19 @@ def main():
     args = parser.parse_args()
 
     print
-    print "Hello!"
-    print 
-    #shellac = ShellacServer(port = args.port)
-    #shellac.run()
+    print 'Running Shellac on port %d...' % args.port
+
+    signal.signal(signal.SIGINT, signal_handler)
+
+    try:
+        shellac = Server(port = args.port)
+        shellac.run()
+    except (KeyboardInterrupt, IOError) as ex:
+        print
+        print 'Shutting down...' 
+
+def signal_handler(signal, frame):
+    pass
 
 if __name__ == '__main__':
     main()
