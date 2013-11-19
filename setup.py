@@ -14,7 +14,7 @@ setup(name='Shellac',
       url='https://github.com/kmacrow/Shellac',
       download_url='https://github.com/kmacrow/Shellac/releases',
       packages=find_packages('src/python'),
-      package_dir={'shellac': 'src/python/shellac'],
+      package_dir={'shellac': 'src/python/shellac'},
       install_requires=['http-parser>=0.8.3', 'pylibmc>=1.2.2'],
       entry_points = {
         'console_scripts': [

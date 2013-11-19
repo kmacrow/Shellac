@@ -86,13 +86,16 @@ class Server(object):
             self._socket.close()
 
 def main():
-    parser = ArgumentParser(description='Shellac Accelerator')
+    parser = argparse.ArgumentParser(description='Shellac Accelerator')
     parser.add_argument('-p', '--port', type=int, default=8080, 
                             help='Port to listen for connections on.')
     args = parser.parse_args()
 
-    shellac = ShellacServer(port = args.port)
-    shellac.run()
+    print
+    print "Hello!"
+    print 
+    #shellac = ShellacServer(port = args.port)
+    #shellac.run()
 
 if __name__ == '__main__':
     main()
