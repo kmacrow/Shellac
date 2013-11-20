@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 
+# Installs dependencies running, building, benchmarking Shellac.
+
 apt-get update
 apt-get install build-essential \
 				python-dev \
 				python-pip \
 				memcached \
 				libmemcached-dev \
-				apache2-utils
+				apache2-utils \
+				gnuplot
 
 pip install cython
 
