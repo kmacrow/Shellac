@@ -61,7 +61,7 @@ class Stream(object):
 
 class Server(object):
 
-    def __init__(self, port = 8080):
+    def __init__(self, servers, port = 8080, ttl = 170, compress = False):
 
         # fd => socket
         self._connections = {}
@@ -236,17 +236,35 @@ def http_request_str( request ):
 
 def main():
     parser = argparse.ArgumentParser(description='Shellac Accelerator')
+    parser.add_argument('servers', metavar='SERVER', type=str, nargs='+',
+                            help='Web servers to cache, host:port')
+    parser.add_argument('cachers', metavar='CACHE', type=str, nargs='+',
+                            help='Cache servers to use, host:port')
     parser.add_argument('-p', '--port', type=int, default=8080, 
                             help='Port to listen for connections on.')
+    parser.add_argument('-t', '--ttl', type=int, default=170,
+                            help='Lifetime of cached objects.')
+    parser.add_argument('-c', '--compress', action='store_true',
+                            help='Compress cached objects.')
+
     args = parser.parse_args()
 
-    print
+    if len(args.servers) == 0:
+        print 'No upstream web servers specified. See shellac -h for help.'
+        sys.exit(1)
+    else:
+        print args.servers
+        sys.exit(0)
+
     print 'Running Shellac on port %d...' % args.port
 
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        shellac = Server(port = args.port)
+        shellac = Server(port = args.port,
+                        servers = args.servers,
+                        ttl = args.ttl,
+                        compress = args.compress)
         shellac.run()
     except (KeyboardInterrupt, IOError) as ex:
         print
