@@ -31,13 +31,17 @@ class Stream(object):
         else:
             self._buf += buf
 
-    def read(self):
+    def read(self):   
+        if not self._ready:
+            return None
         if self._buffered:
             return self._buf[self._pos:]
         else:
             return self._buf
 
     def ack(self, bytes):
+        if not self._ready:
+            return
         if bytes > 0:
             if self._buffered:
                 self._pos += bytes
@@ -283,6 +287,8 @@ def main():
     if len(caches) == 0:
         print 'No cache servers specified. See shellac -h for help.'
         sys.exit(1)
+
+    # todo: check that servers are responsive
     
     print 'Running Shellac on port %d...' % args.port
 
