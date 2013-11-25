@@ -61,7 +61,7 @@ class Stream(object):
 
 class Server(object):
 
-    def __init__(self, servers, port = 8080, ttl = 170, compress = False):
+    def __init__(self, servers, caches, port = 8080, ttl = 170, compress = False):
 
         # fd => socket
         self._connections = {}
@@ -76,13 +76,22 @@ class Server(object):
         self._stream_map = {}
 
         # names of upstream servers to balance traffic on
-        self._upstream_servers = []
+        self._upstream_servers = servers
+
+        # names of memcached servers to build cache on
+        self._cache_servers = caches
 
         # fd => socket
         self._upstream_connections = {}
 
         # fd => [Request] (Queue)
         self._upstream_requests    = {}
+
+        # compress cache entries?
+        self._compress = compress
+
+        # how long should entries live?
+        self._ttl = ttl
 
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -235,34 +244,53 @@ def http_request_str( request ):
     return req
 
 def main():
+
+    def parse_server_list(slist, default_port):
+        result = []
+        if ',' in slist:
+            raw = slist.split(',')
+        else:
+            raw = [slist]
+        for srv in raw:
+            if ':' in srv:
+                (host, port) = srv.split(':')
+                result.append((host, int(port)))
+            else:
+                result.append((srv, default_port))
+        return result
+
     parser = argparse.ArgumentParser(description='Shellac Accelerator')
-    parser.add_argument('servers', metavar='SERVER', type=str, nargs='+',
-                            help='Web servers to cache, host:port')
-    parser.add_argument('cachers', metavar='CACHE', type=str, nargs='+',
-                            help='Cache servers to use, host:port')
+    parser.add_argument('-s', '--servers',
+                            help='Web servers to cache: host:port,host:port,... (port defaults to 80)')
+    parser.add_argument('-c', '--caches',
+                            help='Cache servers to use: host:port,host:port,... (port defaults to 11211)')
     parser.add_argument('-p', '--port', type=int, default=8080, 
                             help='Port to listen for connections on.')
     parser.add_argument('-t', '--ttl', type=int, default=170,
                             help='Lifetime of cached objects.')
-    parser.add_argument('-c', '--compress', action='store_true',
+    parser.add_argument('-z', '--compress', action='store_true',
                             help='Compress cached objects.')
 
     args = parser.parse_args()
 
-    if len(args.servers) == 0:
+    servers = parse_server_list(args.servers, 80)
+    caches = parse_server_list(args.caches, 11211)
+
+    if len(servers) == 0:
         print 'No upstream web servers specified. See shellac -h for help.'
         sys.exit(1)
-    else:
-        print args.servers
-        sys.exit(0)
-
+    
+    if len(caches) == 0:
+        print 'No cache servers specified. See shellac -h for help.'
+        sys.exit(1)
+    
     print 'Running Shellac on port %d...' % args.port
 
     signal.signal(signal.SIGINT, signal_handler)
 
     try:
-        shellac = Server(port = args.port,
-                        servers = args.servers,
+        shellac = Server(servers, caches, 
+                        port = args.port,
                         ttl = args.ttl,
                         compress = args.compress)
         shellac.run()
