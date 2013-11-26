@@ -66,6 +66,7 @@ class Stream(object):
 class Server(object):
 
     def __init__(self, servers, caches, port = 8080, ttl = 170, compress = False):
+        """ Create an instance of the Shellac server """
 
         # fd => socket
         self._connections = {}
@@ -108,12 +109,13 @@ class Server(object):
         self._epoll.register(self._socket.fileno(), select.EPOLLIN)
 
     def _choose_upstream_fd(self):
+        """ Choose at random a valid upstream connection """
 
         def create_connection(host, port):
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             conn.connect((host, port))
             conn.setblocking(0)
-            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLHUP)
+            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR)
             return conn
 
         (host, port) = random.choice(self._upstream_servers)
@@ -132,12 +134,13 @@ class Server(object):
             return conn.fileno() 
 
     def _new_connection(self):
-    
+        """ Initialize a new client connection """
+
         connection, address = self._socket.accept()
         connection.setblocking(0)
         fd = connection.fileno()
 
-        self._epoll.register(fd, select.EPOLLIN | select.EPOLLHUP)
+        self._epoll.register(fd, select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR)
         self._connections[fd] = connection
         self._requests[fd]    = [HttpParser()]
         self._responses[fd]   = []
@@ -145,6 +148,7 @@ class Server(object):
         cork_socket(connection)
 
     def _close_connection(self, fd):
+        """ Handle EPOLLHUP: a client or upstream connection has been closed """
 
         self._epoll.unregister(fd)
 
@@ -171,6 +175,7 @@ class Server(object):
 
 
     def _write_event(self, fd):
+        """ Handle EPOLLOUT: a client or upstream connection can be written """
 
         if fd in self._connections:
 
@@ -208,6 +213,7 @@ class Server(object):
 
 
     def _read_event(self, fileno):
+        """ Handle EPOLLIN: a client or upstream connection can be read """
 
         if fd in self._connections:
             # read request from client
@@ -243,7 +249,8 @@ class Server(object):
                 self._stream_map[fd] = self._stream_map[fd][1:]
 
     def run(self):
-        
+        """ Run the server reactor """
+
         try:
             while True:
                 events = self._epoll.poll(1)
@@ -260,19 +267,27 @@ class Server(object):
 
                     elif event & select.EPOLLHUP:
                         self._close_connection(fd)
+
+                    elif event & select.EPOLLERR:
+                        self._close_connection(fd)
                     
         finally:
             self._epoll.unregister(self._socket.fileno())
             self._epoll.close()
             self._socket.close()
 
+
 def cork_socket( sock ):
+    """ Apply the TCP_CORK option to a socket, prevent sending packets """
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_CORK, 1)
 
 def flush_socket( sock ):
+    """ Remove TCP_CORK from a socket, flush packets to the network """
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_CORK, 0)
 
 def http_request_str( request ):
+    """ Build an HTTP request from an HttpParser request """
+
     req = ''
     req = '%s %s HTTP/1.1\r\n' % (request.get_method(), request.get_url())
     
@@ -287,7 +302,8 @@ def http_request_str( request ):
     return req
 
 def main():
-
+    """ Entry point for the server CLI """
+    
     def parse_server_list(slist, default_port):
         result = []
         if ',' in slist:
