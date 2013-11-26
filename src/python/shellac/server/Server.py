@@ -108,6 +108,15 @@ class Server(object):
         self._epoll = select.epoll()
         self._epoll.register(self._socket.fileno(), select.EPOLLIN)
 
+    def _get_upstream_socket(self, fd):
+        """ Find the socket corresponding to a socket descriptor """
+
+        for host in self._upstream_connections:
+            for conn in self._upstream_connections[host]:
+                if conn.fileno() == fd:
+                    return host
+        return None
+
     def _choose_upstream_fd(self):
         """ Choose at random a valid upstream connection """
 
@@ -171,7 +180,8 @@ class Server(object):
                 if found:
                     break
             del self._upstream_requests[fd]
-            # todo: clean up the stream_map
+            del self._stream_map[fd]
+            
 
 
     def _write_event(self, fd):
@@ -194,25 +204,29 @@ class Server(object):
                 flush_socket(self._connections[fd])
                 # cache.put(key, stream.buffer())
                 self._responses[fd] = self._responses[fd][1:]
+                cork_socket(self._connections[fd])
                     
         else:
             # write request to upstream server
-            if len(self._upstream_requests[fd]) == 0:
+            if not fd in self._upstream_requests or \
+                len(self._upstream_requests[fd]) == 0:
                 return
 
             stream = self._upstream_requests[fd][0]
             if not stream.ready():
                 return
 
-            sent = self._upstream_connections[fd].send( stream.read() )
+            conn = self._get_upstream_socket(fd)
+
+            sent = conn.send( stream.read() )
             stream.ack( sent )
 
             if stream.complete():
-                flush_socket(self._upstream_connections[fd])
+                flush_socket(conn)
                 self._upstream_requests[fd] = self._upstream_requests[fd][1:]
+                cork_socket(conn)
 
-
-    def _read_event(self, fileno):
+    def _read_event(self, fd):
         """ Handle EPOLLIN: a client or upstream connection can be read """
 
         if fd in self._connections:
@@ -224,21 +238,29 @@ class Server(object):
 
             if request.is_message_complete():
                 # create a response
-                #key = request.get_url()
+                key = request.get_url()
                 #if cache.has(key):
                 #    self._responses[fd].append( ( key, Stream(cache.get(key)) ) )
                 #else:
                 self._responses[fd].append( ( key, Stream(data=None, buffered=True) ) )
                 
                 up_fd = self._choose_upstream_fd()
-                self._upstream_requests[up_fd].append( Stream( http_request_str(request) ) )
-                
-                self._stream_map[up_fd].append(fd)
-            
-            
+
+                if up_fd in self._upstream_requests:
+                    self._upstream_requests[up_fd].append( Stream( http_request_str(request) ) )
+                else:
+                    self._upstream_requests[up_fd]  = [ Stream( http_request_str(request) ) ]
+
+                if up_fd in self._stream_map:
+                    self._stream_map[up_fd].append(fd)
+                else:
+                    self._stream_map[up_fd] = [fd]
+                    
         else:
             # read response from upstream server
-            data = self._upstream_connections[fd].recv(4096)
+            conn = self._get_upstream_socket(fd)
+
+            data = conn.recv(4096)
             
             down_fd = self._stream_map[fd][0]
             (_, response) = self._responses[down_fd][0]
@@ -303,7 +325,7 @@ def http_request_str( request ):
 
 def main():
     """ Entry point for the server CLI """
-    
+
     def parse_server_list(slist, default_port):
         result = []
         if ',' in slist:
