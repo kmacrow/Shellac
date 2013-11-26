@@ -108,7 +108,28 @@ class Server(object):
         self._epoll.register(self._socket.fileno(), select.EPOLLIN)
 
     def _choose_upstream_fd(self):
-        return 0
+
+        def create_connection(host, port):
+            conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            conn.connect((host, port))
+            conn.setblocking(0)
+            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLHUP)
+            return conn
+
+        (host, port) = random.choice(self._upstream_servers)
+
+        if host in self._upstream_connections:
+            if len(self._upstream_connections[host]) < 4:
+                conn = create_connection(host, port)
+                self._upstream_connections[host].append(conn)
+                return conn.fileno()
+            else:
+                conn = random.choice(self._upstream_connections[host])
+                return conn.fileno()
+        else:
+            conn = create_connection(host, port)
+            self._upstream_connections[host] = [conn]
+            return conn.fileno() 
 
     def _new_connection(self):
     
@@ -116,7 +137,7 @@ class Server(object):
         connection.setblocking(0)
         fd = connection.fileno()
 
-        self._epoll.register(fd, select.EPOLLIN)
+        self._epoll.register(fd, select.EPOLLIN | select.EPOLLHUP)
         self._connections[fd] = connection
         self._requests[fd]    = [HttpParser()]
         self._responses[fd]   = []
@@ -126,10 +147,28 @@ class Server(object):
     def _close_connection(self, fd):
 
         self._epoll.unregister(fd)
-        self._connections[fd].close()
-        del self._connections[fd]
-        del self._requests[fd]
-        del self._responses[fd]
+
+        if fd in self._connections:
+            # it's a client
+            self._connections[fd].close()
+            del self._connections[fd]
+            del self._requests[fd]
+            del self._responses[fd]
+        else:
+            # it's an upstream server
+            found = False
+            for host in self._upstream_connections:
+                for i in range(len(self._upstream_connections[host])):
+                    if self._upstream_connections[host][i].fileno() == fd:
+                        self._upstream_connections[host][i].close()
+                        del self._upstream_connections[host][i]
+                        found = True
+                        break
+                if found:
+                    break
+            del self._upstream_requests[fd]
+            # todo: clean up the stream_map
+
 
     def _write_event(self, fd):
 
@@ -258,9 +297,9 @@ def main():
         for srv in raw:
             if ':' in srv:
                 (host, port) = srv.split(':')
-                result.append((host, int(port)))
+                result.append((socket.gethostbyname(host), int(port)))
             else:
-                result.append((srv, default_port))
+                result.append((socket.gethostbyname(srv), default_port))
         return result
 
     parser = argparse.ArgumentParser(description='Shellac Accelerator')
