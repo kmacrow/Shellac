@@ -8,11 +8,11 @@ import argparse
 import logging
 import socket, select
 import pylibmc
+from collections import deque
 from http_parser.parser import HttpParser
 from Stream import Stream
 
 logger = logging.getLogger(__name__)
-
 
 class Server(object):
 
@@ -49,6 +49,8 @@ class Server(object):
         # how long should entries live?
         self._ttl = ttl
 
+        self._id_counter = 0
+
 
         self._socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self._socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -65,8 +67,22 @@ class Server(object):
         for host in self._upstream_connections:
             for conn in self._upstream_connections[host]:
                 if conn.fileno() == fd:
-                    return host
+                    return conn
         return None
+
+    def _get_response_by_id(self, fd, rid):
+        """ Find the stream object for a response given it's client and id """
+
+        if not fd in self._responses:
+            return (None, None)
+        for (key, srid, stream) in self._responses[fd]:
+            if rid == srid:
+                return (key, stream)
+        return (None, None) 
+
+    def _get_next_id(self):
+        self._id_counter += 1
+        return self._id_counter
 
     def _choose_upstream_fd(self):
         """ Choose at random a valid upstream connection """
@@ -102,8 +118,8 @@ class Server(object):
 
         self._epoll.register(fd, select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR)
         self._connections[fd] = connection
-        self._requests[fd]    = [HttpParser()]
-        self._responses[fd]   = []
+        self._requests[fd]    = deque([HttpParser()])
+        self._responses[fd]   = deque()
         
         cork_socket(connection)
 
@@ -118,6 +134,8 @@ class Server(object):
             del self._connections[fd]
             del self._requests[fd]
             del self._responses[fd]
+            # todo: what about outstanding upstream requests?
+            # probably black hole them.
         else:
             # it's an upstream server
             found = False
@@ -132,7 +150,9 @@ class Server(object):
                     break
             del self._upstream_requests[fd]
             del self._stream_map[fd]
-            
+            # todo: what about outstanding client requests. probably
+            # kill any client fd's that this was piping to.
+
 
 
     def _write_event(self, fd):
@@ -154,7 +174,7 @@ class Server(object):
             if stream.complete():
                 flush_socket(self._connections[fd])
                 # cache.put(key, stream.buffer())
-                self._responses[fd] = self._responses[fd][1:]
+                self._responses[fd] = self._responses[fd].popleft()
                 cork_socket(self._connections[fd])
                     
         else:
@@ -183,29 +203,41 @@ class Server(object):
         if fd in self._connections:
             # read request from client
             data = self._connections[fd].recv(4096)
+            data_len = len(data)
 
             request = self._requests[fd][-1]
-            request.execute(data, len(data))
+            parsed = request.execute(data, data_len)
+
+            # this is a problem
+            if parsed != data_len:
+                logger.error('HttpParser.execute()')
+                return
+
+            # need to read more
+            if not request.is_message_complete()
+                return
+
+            # might be more requests/fragments sitting in the buffer
 
             if request.is_message_complete():
-                # create a response
+
                 key = request.get_url()
-                #if cache.has(key):
-                #    self._responses[fd].append( ( key, Stream(cache.get(key)) ) )
-                #else:
-                self._responses[fd].append( ( key, Stream(data=None, buffered=True) ) )
+                resp_id = self._get_next_id()
+
+                self._responses[fd].append( 
+                    ( key, resp_id, Stream(data=None,buffered=True) ) 
+                )
+
+                self._requests[fd].append( HttpParser() )
                 
                 up_fd = self._choose_upstream_fd()
 
-                if up_fd in self._upstream_requests:
-                    self._upstream_requests[up_fd].append( Stream( http_request_str(request) ) )
-                else:
-                    self._upstream_requests[up_fd]  = [ Stream( http_request_str(request) ) ]
+                self._upstream_requests.setdefault(up_fd, deque())\
+                                       .append( Stream( http_request_str(request) ) )
 
-                if up_fd in self._stream_map:
-                    self._stream_map[up_fd].append(fd)
-                else:
-                    self._stream_map[up_fd] = [fd]
+                    
+                self._stream_map.setdefault(up_fd, deque())\
+                                .append( (fd, resp_id) )
                     
         else:
             # read response from upstream server
@@ -213,13 +245,17 @@ class Server(object):
 
             data = conn.recv(4096)
             
-            down_fd = self._stream_map[fd][0]
-            (_, response) = self._responses[down_fd][0]
+            (down_fd, resp_id) = self._stream_map[fd][0]
+            (_, response) = self._get_response_by_id(down_fd, resp_id)
+            
+            if response is None:
+                return
+
             response.push(data)
 
             if len(data) == 0:
                 response.close()
-                self._stream_map[fd] = self._stream_map[fd][1:]
+                self._stream_map[fd] = self._stream_map[fd].popleft()
 
     def run(self):
         """ Run the server reactor """
@@ -265,7 +301,6 @@ def http_request_str( request ):
     req = '%s %s HTTP/1.1\r\n' % (request.get_method(), request.get_url())
     
     headers = request.get_headers()
-    headers['Connection'] = 'keep-alive'
 
     for header in headers:
         req += '%s: %s\r\n' % (header, headers[header])

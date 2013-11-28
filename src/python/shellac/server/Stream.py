@@ -1,53 +1,36 @@
 #!/usr/bin/env python
 
+import os
+import cStringIO
+
 class Stream(object):
 
-    def __init__(self, data = None, buffered = False):
-        self._buf = None
-        self._pos = 0
-        self._eos = False
+    def __init__(self, data = None):
+        self._buf = cStringIO.StringIO()
+        self._eof = False
         self._ready = False
-        self._buffered = buffered
 
-        if data != None:
-            self.push(data)
+        if data:
+            self.write(data)
 
-    def push(self, buf):
-        if self._buf is None:
-            self._buf = buf
-            self._ready = True
-        else:
-            self._buf += buf
+    def write(self, data):
+        self._ready = True
+        pos = self._buf.tell()
+        self._buf.seek(0, os.SEEK_END)
+        self._buf.write(data)
+        self._buf.seek(pos)
 
     def read(self):   
-        if not self._ready:
-            return None
-        if self._buffered:
-            return self._buf[self._pos:]
-        else:
-            return self._buf
-
-    def ack(self, bytes):
-        if not self._ready:
-            return
-        if bytes > 0:
-            if self._buffered:
-                self._pos += bytes
-            else:
-                self._buf = self._buf[bytes:]
+        return self._buf.read()
 
     def close(self):
-        self._eos = True
+        self._eof = True
 
     def buffer(self):
-        return self._buf
+        return self._buf.getvalue()
 
     def complete(self):
-        if self._buffered:
-            return self._eos and self._pos == len(self._buf)
-        else:
-            return self._eos and len(self._buf) == 0
+        return self._eof
 
     def ready(self):
         return self._ready
-        
