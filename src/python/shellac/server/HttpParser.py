@@ -10,6 +10,7 @@ class HttpParser(object):
     	self._method = None
     	self._version = None
     	self._url = None
+        self._status = None
         self._headers = {}
         self._body = cStringIO.StringIO()
         self._buf = ''
@@ -29,6 +30,9 @@ class HttpParser(object):
 
     def url(self):
     	return self._url
+
+    def status(self):
+        return self._status
 
     def version(self):
     	return self._version
@@ -184,10 +188,39 @@ class HttpParser(object):
 
 
     def _parse_first_line(self):
-    	pass
+    	""" Parse a request/response line """
+
+        (a, b, c) = self._buf.rstrip().split(' ')
+        if a.startswith('HT'):
+            # response...
+            self._is_request = False
+            (_, version) = a.split('/')
+            self._version = float(version)
+            self._status = int(b)
+        else:
+            # request...
+            self._is_request = True
+            (_, version) = c.split('/')
+            self._version = float(version)
+            self._method = a
+            self._url = b
 
     def _parse_headers(self):
-    	pass
+    	""" Parse raw headers into a dict of scalars/lists """
+        
+        headers = self._buf.strip().split('\r\n')
+        for header in headers:
+            (key, value) = header.split(': ')
+            value = value.strip()
+            key = key.lower()
+            if key in self._headers:
+                if isinstance(self._headers[key], list):
+                    self._headers[key].append(value)
+                else:
+                    self._headers[key] = [self._headers[key], value]
+            else:
+                self._headers[key] = value
+
 
     def _parse_body(self):
     	pos = self._body.tell()
