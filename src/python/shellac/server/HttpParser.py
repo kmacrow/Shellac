@@ -1,8 +1,40 @@
 #!/usr/bin/env python
+"""
+    Simple, fast HTTP parsing with no dependencies.
+
+    Usage:
+        buf = '...an HTTP stream...' 
+        p = HttpParser()
+        while not p.message_complete():
+            c = p.parse(buf, len(buf))
+            buf = buf[c:]
+
+        print p.headers()
+        print p.body().read()
+
+    Limitations:
+        - poor support for chunk extensions
+        - no support for chunk trailers
+        - only gzip compression is supported
+        - some pythonic but unnecessary string copying
+        - test coverage could be better
+        - not thread safe, designed for a reactor
+        - no support for constructing messages
+
+    Credits:
+        - Kalan MacRow @k16w github.com/kmacrow
+
+    License:
+        - GPL <http://www.gnu.org/licenses/gpl.html>
+
+"""
 
 import re
 import os
+import zlib
 import cStringIO
+
+CHUNK_HEADER_RX = r'(\r\n)?[a-z0-9]+(;[a-z0-9]+="?[a-z0-9\-_]+"?)?\r\n'
 
 class HttpParser(object):
 
@@ -11,6 +43,7 @@ class HttpParser(object):
         self._version = None
         self._url = None
         self._status = None
+        self._message = None
         self._headers = {}
         self._body = cStringIO.StringIO()
         self._buf = ''
@@ -38,6 +71,9 @@ class HttpParser(object):
     def version(self):
         return self._version
 
+    def message(self):
+        return self._message
+
     def headers(self):
         return self._headers
 
@@ -55,6 +91,38 @@ class HttpParser(object):
 
     def message_complete(self):
         return self._message_complete
+
+    def __str__(self):
+
+        def header_case(k):
+            return '-'.join(map(lambda x: x.capitalize(), k.split('-')))
+
+        def header_value(v):
+            if isinstance(v, list):
+                return ', '.join(v)
+            else:
+                return v
+
+        s = ''
+        if self.is_request():
+            s = '%s %s HTTP/%.1f' % (self.method(), self.url(), self.version())
+        else:
+            s = 'HTTP/%.1f %d %s' % (self.version(), self.status(), self.message())
+        s += '\r\n'
+
+        self._headers.pop('transfer-encoding', None)
+
+        for k in self._headers:
+            s += '%s: %s\r\n' % (header_case(k), header_value(self._headers[k]))
+        
+        b = self.body().read()
+        if self._headers.get('content-encoding', 'identity') == 'gzip':
+            b = zlib.compress(b)
+
+        s += 'Content-Length: %d\r\n' % len(b)     
+        s += '\r\n'
+        s += b
+        return s
 
     def parse(self, data, length):
         """ Parse data, return number of bytes consumed. """
@@ -125,13 +193,11 @@ class HttpParser(object):
                 if not self._chunked:
 
                     if length < self._content_len:
-                        self._buf = data
-                        self._parse_body()
-                        self._buf = ''
+                        self._buf += data
                         self._content_len -= length
                         return length
                     else:
-                        self._buf = data[:self._content_len]
+                        self._buf += data[:self._content_len]
                         self._parse_body()
                         self._buf = ''
 
@@ -170,7 +236,7 @@ class HttpParser(object):
 
         if self._content_len is None:
 
-            match = re.match(r'(\r\n)?[a-z0-9]+\r\n', self._buf, flags=re.IGNORECASE)
+            match = re.match(CHUNK_HEADER_RX, self._buf, flags=re.IGNORECASE)
 
             if match is None:
                 return length
@@ -207,13 +273,11 @@ class HttpParser(object):
             left = length
 
         if left < self._content_len:
-            self._parse_body()
             self._content_len -= left
-            self._buf = ''
             nb_parsed += left
             return nb_parsed
         else:
-            self._buf = self._buf[:self._content_len]
+            self._buf = self._buf[:buf_len + self._content_len]
             self._parse_body()
             self._buf = ''
             nb_parsed += self._content_len
@@ -231,6 +295,7 @@ class HttpParser(object):
             (_, version) = a.split('/')
             self._version = float(version)
             self._status = int(b)
+            self._message = c
         else:
             # request...
             self._is_request = True
@@ -259,7 +324,10 @@ class HttpParser(object):
     def _parse_body(self):
         pos = self._body.tell()
         self._body.seek(0, os.SEEK_END)
-        self._body.write(self._buf)
+        if self._headers.get('content-encoding', 'identity') == 'gzip':
+            self._body.write(zlib.decompress(self._buf))
+        else:
+            self._body.write(self._buf)
         self._body.seek(pos)
 
 
@@ -381,6 +449,17 @@ def test():
     req+= 'User-Agent: Safari\r\n'
     req+= 'Date: Jul 25, 2013 5:14:11 GMT\r\n'
     req+= '\r\n'
+
+    data = zlib.compress('A certain kind of magic.')
+    req+= 'HTTP/1.1 200 OK\r\n'
+    req+= 'User-Agent: gws\r\n'
+    req+= 'Date: Jan 4, 1989 2:51:12 GMT\r\n'
+    req+= 'Content-Encoding: gzip\r\n'
+    req+= 'Content-Length: %d\r\n' % len(data)
+    req+= '\r\n'
+    req+= data
+
+
     
 
     p = []
@@ -391,7 +470,7 @@ def test():
             req = req[c:]
         p.append(h)
 
-    assert len(p) == 5
+    assert len(p) == 6
 
     for h in p:
         print
@@ -418,7 +497,6 @@ def test():
         req = req[c:]
 
     assert p.headers_complete() == True
-    assert p.body().read() == 'XXXXX'
 
     req = 'AAAAA'
     
@@ -426,25 +504,25 @@ def test():
         c = p.parse(req, len(req))
         req = req[c:]
 
-    assert p.body().read() == 'AAAAA'
-
     assert p.message_complete() == True
+    assert p.body().read() == 'XXXXXAAAAA'
+
     dump_parser(p)
 
     # chunked message body...
-    req+= 'HTTP/1.1 200 OK\r\n'
+    req = 'HTTP/1.1 200 OK\r\n'
     req+= 'User-Agent: Safari\r\n'
     req+= 'User-Agent: Mac OS 10.8\r\n'
     req+= 'Transfer-Encoding: chunked\r\n'
     req+= 'Date: Jul 25, 2013 5:14:11 GMT\r\n'
     req+= '\r\n'
-    req+= 'A\r\n'
+    req+= 'A;ext=foo\r\n'
     req+= 'AAAAAAAAAA'
     req+= '\r\n'
-    req+= '8\r\n'
+    req+= '8;ext="foo"\r\n'
     req+= 'BBBBBBBB'
     req+= '\r\n'
-    req+= '6\r\n'
+    req+= '6;ext=foo7\r\n'
     req+= 'CCCCCC'
     req+= '\r\n'
     req+= '0\r\n'
@@ -460,9 +538,42 @@ def test():
     print
     dump_parser(p)
 
-    # chunked message stream...
+    # compressed + chunked message...
+    data0 = zlib.compress('Romeo, ')
+    data1 = zlib.compress('oh Romeo, ')
+    data2 = zlib.compress('why art thou so fare.')
 
-    # chunked message in pieces...
+    req = 'HTTP/1.1 200 OK\r\n'
+    req+= 'User-Agent: Safari\r\n'
+    req+= 'Transfer-Encoding: chunked\r\n'
+    req+= 'Content-Encoding: gzip\r\n'
+    req+= 'Date: Jul 25, 2013 5:14:11 GMT\r\n'
+    req+= '\r\n'
+    req+= '%x;ext=foo\r\n' % len(data0)
+    req+= data0
+    req+= '\r\n'
+    req+= '%x;ext="foo"\r\n' % len(data1)
+    req+= data1
+    req+= '\r\n'
+    req+= '%x;ext=foo7\r\n' % len(data2)
+    req+= data2
+    req+= '\r\n'
+    req+= '0\r\n'
+    req+= '\r\n'
+
+    p = HttpParser()
+    while not p.message_complete():
+        c = p.parse(req, len(req))
+        req = req[c:]
+
+    assert p.body().read() == 'Romeo, oh Romeo, why art thou so fare.'
+
+    print
+    dump_parser(p)    
+
+    # chunked message in pieces... (edge cases)
+
+    # todo: tests with larger message bodies?
 
     print
     print 'Done.'
