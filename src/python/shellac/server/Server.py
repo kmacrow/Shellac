@@ -9,7 +9,8 @@ import logging
 import socket, select
 import pylibmc
 from collections import deque
-from http_parser.parser import HttpParser
+
+from HttpParser import HttpParser
 from Stream import Stream
 
 logger = logging.getLogger(__name__)
@@ -294,20 +295,6 @@ def flush_socket( sock ):
     """ Remove TCP_CORK from a socket, flush packets to the network """
     sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_CORK, 0)
 
-def http_request_str( request ):
-    """ Build an HTTP request from an HttpParser request """
-
-    req = ''
-    req = '%s %s HTTP/1.1\r\n' % (request.get_method(), request.get_url())
-    
-    headers = request.get_headers()
-
-    for header in headers:
-        req += '%s: %s\r\n' % (header, headers[header])
-
-    req += '\r\n'
-    req += request.recv_body()
-    return req
 
 def main():
     """ Entry point for the server CLI """
