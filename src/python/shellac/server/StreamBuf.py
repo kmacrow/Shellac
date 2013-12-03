@@ -68,6 +68,9 @@ class StreamBuf(object):
         self._eof = False
         self._ready = False
 
+    def complete(self):
+        return self.closed() and self._pos >= len(self._buf)
+
     def closed(self):
         return self._eof
 

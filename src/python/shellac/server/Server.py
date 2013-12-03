@@ -75,10 +75,10 @@ class Server(object):
         """ Find the stream object for a response given it's client and id """
 
         if not fd in self._responses:
-            return (None, None)
-        for (key, _rid, stream) in self._responses[fd]:
+            return (None, None, None)
+        for (key, _rid, response, stream) in self._responses[fd]:
             if rid == _rid:
-                return (key, stream)
+                return (key, response, stream)
         return (None, None) 
 
     def _get_next_id(self):
@@ -121,8 +121,6 @@ class Server(object):
         self._connections[fd] = conn
         self._requests[fd]    = deque([HttpParser()])
         self._responses[fd]   = deque()
-        
-        cork_socket(connection)
 
     def _close_connection(self, fd):
         """ Handle EPOLLHUP: a client or upstream connection has been closed """
@@ -136,7 +134,6 @@ class Server(object):
             del self._requests[fd]
             del self._responses[fd]
             # todo: what about outstanding upstream requests?
-            # probably black hole them.
         else:
             # it's an upstream server
             found = False
@@ -151,8 +148,7 @@ class Server(object):
                     break
             del self._upstream_requests[fd]
             del self._stream_map[fd]
-            # todo: what about outstanding client requests. probably
-            # kill any client fd's that this was piping to.
+            # todo: what about outstanding client requests.
 
 
 
@@ -160,104 +156,124 @@ class Server(object):
         """ Handle EPOLLOUT: a client or upstream connection can be written """
 
         if fd in self._connections:
-
-            # write response to client
-            if len(self._responses[fd]) == 0:
-                return
-
-            (key, stream) = self._responses[fd][0]
-            if not stream.ready():
-                return
-
-            # todo: stream interface has changed
-            sent = self._connections[fd].send( stream.read() )
-            stream.ack( sent )
-
-            if stream.complete():
-                flush_socket(self._connections[fd])
-                # cache.put(key, stream.buffer())
-                self._responses[fd].popleft()
-                cork_socket(self._connections[fd])
-                    
+            self._write_responses(fd)
         else:
-            # write request to upstream server
-            if not fd in self._upstream_requests or \
+            self._write_request(fd)
+
+    def _write_response(self, fd):
+        """ Write client responses to the wire """
+
+        assert fd in self._connections
+        assert fd in self._responses
+
+        if len(self._responses[fd]) == 0:
+            return
+
+        (key, rid, response, stream) = self._responses[fd][0]
+        if not stream.ready():
+            return
+
+        sent = self._connections[fd].send( stream.read() )
+        stream.ack( sent )
+
+        if stream.complete():
+            self._responses[fd].popleft()
+
+    def _write_request(self, fd):
+        """ Write requests to the upstream wires """
+
+        if not fd in self._upstream_requests or \
                 len(self._upstream_requests[fd]) == 0:
                 return
 
-            stream = self._upstream_requests[fd][0]
-            if not stream.ready():
-                return
+        stream = self._upstream_requests[fd][0]
+        if not stream.ready():
+            return
 
-            conn = self._get_upstream_socket(fd)
+        conn = self._get_upstream_socket(fd)
 
-            sent = conn.send( stream.read() )
-            stream.ack( sent )
+        sent = conn.send( stream.read() )
+        stream.ack( sent )
 
-            if stream.complete():
-                flush_socket(conn)
-                self._upstream_requests[fd] = self._upstream_requests[fd][1:]
-                cork_socket(conn)
+        if stream.complete():
+            self._upstream_requests[fd].popleft()
 
     def _read_event(self, fd):
         """ Handle EPOLLIN: a client or upstream connection can be read """
 
         if fd in self._connections:
-            # read request from client
-            data = self._connections[fd].recv(4096)
-            data_len = len(data)
-
-            request = self._requests[fd][-1]
-            parsed = request.execute(data, data_len)
-
-            # this is a problem
-            if parsed != data_len:
-                logger.error('HttpParser.execute()')
-                return
-
-            # need to read more
-            if not request.is_message_complete()
-                return
-
-            # might be more requests/fragments sitting in the buffer
-
-            if request.is_message_complete():
-
-                key = request.get_url()
-                resp_id = self._get_next_id()
-
-                self._responses[fd].append( 
-                    ( key, resp_id, Stream(data=None,buffered=True) ) 
-                )
-
-                self._requests[fd].append( HttpParser() )
-                
-                up_fd = self._choose_upstream_fd()
-
-                self._upstream_requests.setdefault(up_fd, deque())\
-                                       .append( Stream( http_request_str(request) ) )
-
-                    
-                self._stream_map.setdefault(up_fd, deque())\
-                                .append( (fd, resp_id) )
-                    
+            self._read_requests(fd)
         else:
-            # read response from upstream server
-            conn = self._get_upstream_socket(fd)
+            self._read_response(fd)
 
-            data = conn.recv(4096)
-            
-            (down_fd, resp_id) = self._stream_map[fd][0]
-            (_, response) = self._get_response_by_id(down_fd, resp_id)
-            
-            if response is None:
-                return
+    def _read_requests(self, fd):
+        """ Read incoming requests off the wire """
 
-            response.push(data)
+        assert fd in self._connections
+        assert fd in self._requests
+        assert len(self._requests[fd]) != 0
 
-            if len(data) == 0:
-                response.close()
-                self._stream_map[fd] = self._stream_map[fd].popleft()
+        data = self._connections[fd].recv(4096)
+
+        request = self._requests[fd][-1]
+        
+        while len(data) != 0:
+
+            parsed = request.parse(data, len(data))
+            data = data[parsed:]
+
+            if request.message_complete():
+
+                key = request.url()
+                rid = self._get_next_id()
+                ufd = self._choose_upstream_fd()
+                request = StreamBuf()
+                request.write( str(request) )
+                request.close()
+
+                self._responses[fd].append( (key, rid, HttpParser(), StreamBuf()) )
+
+                self._upstream_requests.setdefault(ufd, deque()) \
+                                .append( request )
+
+                
+                self._stream_map.setdefault(ufd, deque()) \
+                                .append( (fd, rid) )
+
+                self._requests[fd].append(HttpParser())
+                request = self._requests[fd][-1]
+
+
+    def _read_responses(self, fd):
+        """ Read responses from upstream servers off the wire """
+
+        conn = self._get_upstream_socket(fd)
+
+        assert conn != None
+        assert fd in self._stream_map
+        assert len(self._stream_map[fd]) != 0
+
+        data = conn.recv(4096)
+        
+        (dfd, rid) = self._stream_map[fd][0]
+        (_, response, stream) = self._get_response_by_id(dfd, rid)
+        
+        if response is None:
+            return
+
+        while len(data) != 0:
+            parsed = response.parse(data, len(data))
+            data = data[parsed:]
+
+            if response.message_complete():
+                stream.write( str(response) )
+                stream.close()
+                self._stream_map[fd].popleft()
+                if len(self._stream_map[fd]) != 0:
+                    (dfd, rid) = self._stream_map[fd][0]
+                    (_, response, stream) = self._get_response_by_id(dfd, rid)
+                    if response is None:
+                        break
 
     def run(self):
         """ Run the server reactor """
