@@ -50,6 +50,7 @@ class Server(object):
         # how long should entries live?
         self._ttl = ttl
 
+        # counter for unique IDs
         self._id_counter = 0
 
 
@@ -128,29 +129,39 @@ class Server(object):
         self._epoll.unregister(fd)
 
         if fd in self._connections:
-            # it's a client
-            self._connections[fd].close()
-            del self._connections[fd]
-            del self._requests[fd]
-            del self._responses[fd]
-            # todo: what about outstanding upstream requests?
+            self._close_client(fd)    
         else:
-            # it's an upstream server
-            found = False
-            for host in self._upstream_connections:
-                for i in range(len(self._upstream_connections[host])):
-                    if self._upstream_connections[host][i].fileno() == fd:
-                        self._upstream_connections[host][i].close()
-                        del self._upstream_connections[host][i]
-                        found = True
-                        break
-                if found:
+            self._close_upstream(fd)
+                     
+
+    def _close_client(self, fd):
+        """ Clean up a client connection"""
+
+        self._connections[fd].close()
+        del self._connections[fd]
+        self._requests.pop(fd, None)
+        self._responses.pop(fd, None) 
+
+    def _close_upstream(self, fd):
+        """ Clean up an upstream connection """
+
+        found = False
+        for host in self._upstream_connections:
+            for i in range(len(self._upstream_connections[host])):
+                if self._upstream_connections[host][i].fileno() == fd:
+                    self._upstream_connections[host][i].close()
+                    del self._upstream_connections[host][i]
+                    found = True
                     break
-            del self._upstream_requests[fd]
-            del self._stream_map[fd]
-            # todo: what about outstanding client requests.
+            if found:
+                break
+        self._upstream_requests.pop(fd, None)
 
+        # close anyone waiting on a request
+        for (dfd, _) in self._stream_map.get(fd, []):
+            self._close_connection(dfd)
 
+        self._stream_map.pop(fd, None)
 
     def _write_event(self, fd):
         """ Handle EPOLLOUT: a client or upstream connection can be written """
@@ -259,6 +270,8 @@ class Server(object):
         (_, response, stream) = self._get_response_by_id(dfd, rid)
         
         if response is None:
+            # lost a downstream client, best to die
+            self._close_connection(fd)
             return
 
         while len(data) != 0:
@@ -268,11 +281,17 @@ class Server(object):
             if response.message_complete():
                 stream.write( str(response) )
                 stream.close()
+                
+                if response.headers().get('connection','keep-alive') == 'close':
+                    self._close_connection(fd)
+                    break
+
                 self._stream_map[fd].popleft()
                 if len(self._stream_map[fd]) != 0:
                     (dfd, rid) = self._stream_map[fd][0]
                     (_, response, stream) = self._get_response_by_id(dfd, rid)
                     if response is None:
+                        self._close_connection(fd)
                         break
 
     def run(self):
