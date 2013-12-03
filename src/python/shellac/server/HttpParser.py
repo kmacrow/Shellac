@@ -20,6 +20,8 @@
         - test coverage could be better
         - not thread safe, designed for a reactor
         - no support for constructing messages
+        - no order is maintained for headers 
+            - WWW-Authenticate and others will not work
 
     Credits:
         - Kalan MacRow @k16w github.com/kmacrow
@@ -111,6 +113,7 @@ class HttpParser(object):
         s += '\r\n'
 
         self._headers.pop('transfer-encoding', None)
+        self._headers.pop('content-length', None)
 
         for k in self._headers:
             s += '%s: %s\r\n' % (header_case(k), header_value(self._headers[k]))
@@ -119,7 +122,9 @@ class HttpParser(object):
         if self._headers.get('content-encoding', 'identity') == 'gzip':
             b = zlib.compress(b)
 
-        s += 'Content-Length: %d\r\n' % len(b)     
+        if len(b) != 0:
+            s += 'Content-Length: %d\r\n' % len(b)
+                 
         s += '\r\n'
         s += b
         return s

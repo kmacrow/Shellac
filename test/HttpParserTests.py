@@ -283,6 +283,39 @@ def test():
 
     open('data/fish-out.jpg','w+').write(ddata)    
 
+    # test __str__
+    req = 'HTTP/1.1 500 Internal Server Error\r\n'
+    req+= 'Server: Apache 2.2\r\n'
+    req+= 'Date: Never\r\n'
+    req+= 'Content-Length: 12\r\n'
+    req+= '\r\n'
+    req+= 'RRRRRRRRRRRR'
+
+    sreq = req
+
+    p = HttpParser()
+    while not p.message_complete():
+        c = p.parse(req, len(req))
+        req = req[c:]
+
+    print
+    print p
+    print
+
+    req = 'GET /index.html HTTP/1.1\r\n'
+    req+= 'User-Agent: Mozilla/WebKit 2.11\r\n'
+    req+= 'Date: Never\r\n'
+    req+= '\r\n'
+
+    p = HttpParser()
+    while not p.message_complete():
+        c = p.parse(req, len(req))
+        req = req[c:]
+
+    print
+    print p
+    print
+
     print
     print 'Done.'
     print

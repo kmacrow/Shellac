@@ -30,6 +30,12 @@ def test():
 	assert s.ready() == False
 	assert s.closed() == False
 
+	s.write('Romeo, oh Romeo.')
+	s.close()
+	s.ack(16)
+	assert s.complete() == True
+	
+
 	print
 	print 'Done.'
 	print
