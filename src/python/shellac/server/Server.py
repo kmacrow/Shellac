@@ -76,8 +76,8 @@ class Server(object):
 
         if not fd in self._responses:
             return (None, None)
-        for (key, srid, stream) in self._responses[fd]:
-            if rid == srid:
+        for (key, _rid, stream) in self._responses[fd]:
+            if rid == _rid:
                 return (key, stream)
         return (None, None) 
 
@@ -113,12 +113,12 @@ class Server(object):
     def _new_connection(self):
         """ Initialize a new client connection """
 
-        connection, address = self._socket.accept()
-        connection.setblocking(0)
-        fd = connection.fileno()
+        conn, address = self._socket.accept()
+        conn.setblocking(0)
+        fd = conn.fileno()
 
         self._epoll.register(fd, select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR)
-        self._connections[fd] = connection
+        self._connections[fd] = conn
         self._requests[fd]    = deque([HttpParser()])
         self._responses[fd]   = deque()
         
@@ -169,13 +169,14 @@ class Server(object):
             if not stream.ready():
                 return
 
+            # todo: stream interface has changed
             sent = self._connections[fd].send( stream.read() )
             stream.ack( sent )
 
             if stream.complete():
                 flush_socket(self._connections[fd])
                 # cache.put(key, stream.buffer())
-                self._responses[fd] = self._responses[fd].popleft()
+                self._responses[fd].popleft()
                 cork_socket(self._connections[fd])
                     
         else:
