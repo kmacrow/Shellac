@@ -53,6 +53,7 @@ class HttpParser(object):
         self._content_len = None
         self._chunked = False
         self._last_chunk = False
+        self._gzip = zlib.decompressobj(31)
 
         self._on_first_line = True
         self._on_headers = False
@@ -118,9 +119,13 @@ class HttpParser(object):
         for k in self._headers:
             s += '%s: %s\r\n' % (header_case(k), header_value(self._headers[k]))
         
-        b = self.body().read()
+        self._body.seek(0)
+        b = self._body.read()
+        
         if self._headers.get('content-encoding', 'identity') == 'gzip':
-            b = zlib.compress(b)
+            zz = zlib.compressobj(6, zlib.DEFLATED, 31)
+            b  = zz.compress(b)
+            b += zz.flush()
 
         if len(b) != 0:
             s += 'Content-Length: %d\r\n' % len(b)
@@ -204,6 +209,7 @@ class HttpParser(object):
                     else:
                         self._buf += data[:self._content_len]
                         self._parse_body()
+                        self._flush_body()
                         self._buf = ''
 
                         nb_parsed = self._content_len
@@ -259,6 +265,7 @@ class HttpParser(object):
             if self._content_len == 0:
                 if self._buf.startswith('\r\n'):
                     nb_parsed += 2
+                    self._flush_body()
                     self._on_body = False
                     self._message_complete = True
 
@@ -268,6 +275,7 @@ class HttpParser(object):
         elif self._content_len == 0:
             if self._buf.startswith('\r\n'):
                 nb_parsed = 2 - buf_len
+                self._flush_body()
                 self._buf = ''
                 self._on_body = False
                 self._message_complete = True
@@ -330,8 +338,13 @@ class HttpParser(object):
         pos = self._body.tell()
         self._body.seek(0, os.SEEK_END)
         if self._headers.get('content-encoding', 'identity') == 'gzip':
-            self._body.write(zlib.decompress(self._buf))
+            self._body.write(self._gzip.decompress(self._buf))
         else:
             self._body.write(self._buf)
         self._body.seek(pos)
+
+    def _flush_body(self):
+        if self._headers.get('content-encoding', 'identity') == 'gzip':
+            self._body.write(self._gzip.flush())
+
 

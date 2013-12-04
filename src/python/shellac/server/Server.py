@@ -11,9 +11,9 @@ import pylibmc
 from collections import deque
 
 from HttpParser import HttpParser
-from Stream import Stream
+from StreamBuf import StreamBuf
 
-logger = logging.getLogger(__name__)
+logging.basicConfig(filename='server.log', filemode='w+', level=logging.DEBUG)
 
 class Server(object):
 
@@ -93,7 +93,8 @@ class Server(object):
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             conn.connect((host, port))
             conn.setblocking(0)
-            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR)
+            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLOUT | select.EPOLLHUP | select.EPOLLERR)
+            logging.debug('Created upstream connection (%d)', conn.fileno())
             return conn
 
         (host, port) = random.choice(self._upstream_servers)
@@ -118,10 +119,16 @@ class Server(object):
         conn.setblocking(0)
         fd = conn.fileno()
 
-        self._epoll.register(fd, select.EPOLLIN | select.EPOLLHUP | select.EPOLLERR)
+        logging.debug('New connection (%d)', fd)
+
+        self._epoll.register(fd, select.EPOLLIN | select.EPOLLOUT | select.EPOLLHUP | select.EPOLLERR)
         self._connections[fd] = conn
         self._requests[fd]    = deque([HttpParser()])
         self._responses[fd]   = deque()
+
+    def _gc_connections(self):
+        # todo: close/gc connections that have timed out
+        return
 
     def _close_connection(self, fd):
         """ Handle EPOLLHUP: a client or upstream connection has been closed """
@@ -137,6 +144,8 @@ class Server(object):
     def _close_client(self, fd):
         """ Clean up a client connection"""
 
+        logging.debug('Closed client (%d)', fd)
+        
         self._connections[fd].close()
         del self._connections[fd]
         self._requests.pop(fd, None)
@@ -144,6 +153,8 @@ class Server(object):
 
     def _close_upstream(self, fd):
         """ Clean up an upstream connection """
+
+        logging.debug('Closed upstream (%d)', fd)
 
         found = False
         for host in self._upstream_connections:
@@ -167,12 +178,14 @@ class Server(object):
         """ Handle EPOLLOUT: a client or upstream connection can be written """
 
         if fd in self._connections:
-            self._write_responses(fd)
+            self._write_response(fd)
         else:
             self._write_request(fd)
 
     def _write_response(self, fd):
         """ Write client responses to the wire """
+
+        logging.debug('write_response(%d)', fd)
 
         assert fd in self._connections
         assert fd in self._responses
@@ -187,26 +200,40 @@ class Server(object):
         sent = self._connections[fd].send( stream.read() )
         stream.ack( sent )
 
+        logging.debug('Wrote back %d bytes (%d)', sent, fd)
+
         if stream.complete():
+            logging.debug('Finished sending response (%d)', fd)
             self._responses[fd].popleft()
 
     def _write_request(self, fd):
         """ Write requests to the upstream wires """
 
+        logging.debug('write_request(%d)', fd)
+
         if not fd in self._upstream_requests or \
                 len(self._upstream_requests[fd]) == 0:
-                return
+            logging.debug('No requests queued for (%d)', fd)
+            return
 
         stream = self._upstream_requests[fd][0]
         if not stream.ready():
+            logging.debug('Request stream not ready (%d)', fd)
             return
 
         conn = self._get_upstream_socket(fd)
 
+        assert conn != None
+
         sent = conn.send( stream.read() )
         stream.ack( sent )
 
+        logging.debug('Wrote %d bytes upstream (%d)', sent, fd)
+        # todo: something wrong here: stream buf is too short,
+        # or complete() isn't working...
+
         if stream.complete():
+            logging.debug('Finish sending request (%d)', fd)
             self._upstream_requests[fd].popleft()
 
     def _read_event(self, fd):
@@ -215,10 +242,14 @@ class Server(object):
         if fd in self._connections:
             self._read_requests(fd)
         else:
-            self._read_response(fd)
+            self._read_responses(fd)
 
     def _read_requests(self, fd):
         """ Read incoming requests off the wire """
+
+        logging.debug('read_requests(%d)', fd)
+
+        # todo: self._requests is a memory leak
 
         assert fd in self._connections
         assert fd in self._requests
@@ -235,17 +266,26 @@ class Server(object):
 
             if request.message_complete():
 
+                logging.debug('Request (%d):', fd)
+                logging.debug(str(request))
+                logging.debug('-------------')
+
                 key = request.url()
                 rid = self._get_next_id()
                 ufd = self._choose_upstream_fd()
-                request = StreamBuf()
-                request.write( str(request) )
-                request.close()
+                
+                # tweak request as needed
+                request.headers()['accept-encoding'] = 'gzip'
+
+                # wrap it in a stream buffer
+                stream = StreamBuf()
+                stream.write( str(request) )
+                stream.close()
 
                 self._responses[fd].append( (key, rid, HttpParser(), StreamBuf()) )
 
                 self._upstream_requests.setdefault(ufd, deque()) \
-                                .append( request )
+                                .append( stream )
 
                 
                 self._stream_map.setdefault(ufd, deque()) \
@@ -258,11 +298,15 @@ class Server(object):
     def _read_responses(self, fd):
         """ Read responses from upstream servers off the wire """
 
+        logging.debug('read_responses(%d)', fd)
+
         conn = self._get_upstream_socket(fd)
 
         assert conn != None
         assert fd in self._stream_map
-        assert len(self._stream_map[fd]) != 0
+        
+        if len(self._stream_map[fd]) == 0:
+            return
 
         data = conn.recv(4096)
         
@@ -279,10 +323,16 @@ class Server(object):
             data = data[parsed:]
 
             if response.message_complete():
+
+                logging.debug('Response (%d -> %d):', fd, dfd)
+                logging.debug(str(response))
+                logging.debug('-------------')
+
+
                 stream.write( str(response) )
                 stream.close()
                 
-                if response.headers().get('connection','keep-alive') == 'close':
+                if response.headers().get('connection','keep-alive').lower() == 'close':
                     self._close_connection(fd)
                     break
 
@@ -293,6 +343,8 @@ class Server(object):
                     if response is None:
                         self._close_connection(fd)
                         break
+                else:
+                    break
 
     def run(self):
         """ Run the server reactor """

@@ -1,4 +1,5 @@
 
+import math
 import zlib
 from shellac.server import HttpParser
 
@@ -125,7 +126,10 @@ def test():
     req+= 'Date: Jul 25, 2013 5:14:11 GMT\r\n'
     req+= '\r\n'
 
-    data = zlib.compress('A certain kind of magic.')
+    gzipp = zlib.compressobj(6, zlib.DEFLATED, 31)
+    data = gzipp.compress('A certain kind of magic.')
+    data += gzipp.flush()
+
     req+= 'HTTP/1.1 200 OK\r\n'
     req+= 'User-Agent: gws\r\n'
     req+= 'Date: Jan 4, 1989 2:51:12 GMT\r\n'
@@ -133,9 +137,6 @@ def test():
     req+= 'Content-Length: %d\r\n' % len(data)
     req+= '\r\n'
     req+= data
-
-
-    
 
     p = []
     while len(req):
@@ -214,9 +215,16 @@ def test():
     dump_parser(p)
 
     # compressed + chunked message...
-    data0 = zlib.compress('Romeo, ')
-    data1 = zlib.compress('oh Romeo, ')
-    data2 = zlib.compress('why art thou so fare.')
+    gzipp = zlib.compressobj(6, zlib.DEFLATED, 31)
+    data = gzipp.compress('Romeo, oh Romeo, why are thou so fair.')
+    data += gzipp.flush()
+
+    chunk_sz = int(math.floor(len(data)/3))
+    data0 = data[:chunk_sz]
+    data1 = data[chunk_sz:2*chunk_sz]
+    data2 = data[2*chunk_sz:]
+
+    assert zlib.decompress(data0+data1+data2, 31) == 'Romeo, oh Romeo, why are thou so fair.'
 
     req = 'HTTP/1.1 200 OK\r\n'
     req+= 'User-Agent: Safari\r\n'
@@ -241,7 +249,7 @@ def test():
         c = p.parse(req, len(req))
         req = req[c:]
 
-    assert p.body().read() == 'Romeo, oh Romeo, why art thou so fare.'
+    assert p.body().read() == 'Romeo, oh Romeo, why are thou so fair.'
 
     print
     dump_parser(p)    
