@@ -123,7 +123,7 @@ class Server(object):
 
         self._epoll.register(fd, select.EPOLLIN | select.EPOLLOUT | select.EPOLLHUP | select.EPOLLERR)
         self._connections[fd] = conn
-        self._requests[fd]    = deque([HttpParser()])
+        self._requests[fd]    = HttpParser()
         self._responses[fd]   = deque()
 
     def _gc_connections(self):
@@ -249,15 +249,13 @@ class Server(object):
 
         logging.debug('read_requests(%d)', fd)
 
-        # todo: self._requests is a memory leak
-
         assert fd in self._connections
-        assert fd in self._requests
-        assert len(self._requests[fd]) != 0
+        
+        if self._requests[fd] == None:
+            return
 
         data = self._connections[fd].recv(4096)
-
-        request = self._requests[fd][-1]
+        request = self._requests[fd]
         
         while len(data) != 0:
 
@@ -291,8 +289,8 @@ class Server(object):
                 self._stream_map.setdefault(ufd, deque()) \
                                 .append( (fd, rid) )
 
-                self._requests[fd].append(HttpParser())
-                request = self._requests[fd][-1]
+                self._requests[fd] = HttpParser()
+                request = self._requests[fd]
 
 
     def _read_responses(self, fd):
@@ -328,7 +326,7 @@ class Server(object):
                 logging.debug(str(response))
                 logging.debug('-------------')
 
-
+                response.headers()['server'] = 'Shellac/0.1.0a'
                 stream.write( str(response) )
                 stream.close()
                 
