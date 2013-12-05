@@ -95,6 +95,17 @@ class HttpParser(object):
     def message_complete(self):
         return self._message_complete
 
+    def keep_alive(self):
+        return self._headers.get('connection', 'close').lower() == 'keep-alive'
+
+    def keep_alive_params(self):
+        if self.keep_alive():
+            ka = self._headers.get('keep-alive', 'timeout=5, max=100')
+            kp = {k:int(v) for k, v in map(lambda x: x.split('='), ka.split(', '))}
+            return (kp.get('timeout', 5), kp.get('max', 100))
+        else:
+            return (0, 1)
+
     def __str__(self):
 
         def header_case(k):

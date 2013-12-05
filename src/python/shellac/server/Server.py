@@ -2,6 +2,7 @@
 
 import os
 import sys
+import time
 import signal
 import random
 import argparse
@@ -12,6 +13,9 @@ from collections import deque
 
 from HttpParser import HttpParser
 from StreamBuf import StreamBuf
+
+# missing constant
+select.EPOLLRDHUP = 0x2000
 
 logging.basicConfig(filename='server.log', filemode='w+', level=logging.DEBUG)
 
@@ -68,7 +72,7 @@ class Server(object):
 
         for host in self._upstream_connections:
             for conn in self._upstream_connections[host]:
-                if conn.fileno() == fd:
+                if conn[0].fileno() == fd:
                     return conn
         return None
 
@@ -93,24 +97,34 @@ class Server(object):
             conn = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             conn.connect((host, port))
             conn.setblocking(0)
-            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLOUT | select.EPOLLHUP | select.EPOLLERR)
-            logging.debug('Created upstream connection (%d)', conn.fileno())
+            self._epoll.register(conn.fileno(), select.EPOLLIN | select.EPOLLOUT | select.EPOLLRDHUP)
             return conn
 
         (host, port) = random.choice(self._upstream_servers)
 
-        if host in self._upstream_connections:
-            if len(self._upstream_connections[host]) < 4:
-                conn = create_connection(host, port)
-                self._upstream_connections[host].append(conn)
-                return conn.fileno()
-            else:
-                conn = random.choice(self._upstream_connections[host])
-                return conn.fileno()
-        else:
+        now = time.time()
+
+        conns = self._upstream_connections.setdefault(host, [])
+        
+        # reap any dead connections
+        for c in conns:
+            if c[3] == -1:
+                continue
+            age = now - c[2] 
+            if age >= c[3] or c[5] >= c[4]:
+                logging.debug('Reaping (%d, %f, %f, %d, %d, %d) age = %f', c[0].fileno(), c[1], c[2], c[3], c[4], c[5], age)
+                self._close_connection(c[0].fileno())
+
+        if len(conns) < 4:
+            # conn, ctime, atime, timeout, max, count
             conn = create_connection(host, port)
-            self._upstream_connections[host] = [conn]
-            return conn.fileno() 
+            conns.append( [conn, time.time(), 0, -1, 0, 0] ) 
+            logging.debug('Opened new upstream conn (%d)', conn.fileno())   
+        else:
+            conn = random.choice(conns)[0]
+        
+        return conn.fileno()
+    
 
     def _new_connection(self):
         """ Initialize a new client connection """
@@ -119,19 +133,21 @@ class Server(object):
         conn.setblocking(0)
         fd = conn.fileno()
 
-        logging.debug('New connection (%d)', fd)
+        logging.debug('New client (client-%d)', fd)
 
-        self._epoll.register(fd, select.EPOLLIN | select.EPOLLOUT | select.EPOLLHUP | select.EPOLLERR)
-        self._connections[fd] = conn
+        # todo: reap any dead clients...
+
+        self._epoll.register(fd, select.EPOLLIN | select.EPOLLOUT | select.EPOLLRDHUP)
+        # conn, ctime, atime, timeout, max, count
+        self._connections[fd] = [conn, time.time(), 0, 5, 100, 0]
         self._requests[fd]    = HttpParser()
         self._responses[fd]   = deque()
 
-    def _gc_connections(self):
-        # todo: close/gc connections that have timed out
-        return
-
+    
     def _close_connection(self, fd):
         """ Handle EPOLLHUP: a client or upstream connection has been closed """
+
+        logging.debug('Closed connection %d', fd)
 
         self._epoll.unregister(fd)
 
@@ -146,7 +162,7 @@ class Server(object):
 
         logging.debug('Closed client (%d)', fd)
         
-        self._connections[fd].close()
+        self._connections[fd][0].close()
         del self._connections[fd]
         self._requests.pop(fd, None)
         self._responses.pop(fd, None) 
@@ -158,10 +174,11 @@ class Server(object):
 
         found = False
         for host in self._upstream_connections:
-            for i in range(len(self._upstream_connections[host])):
-                if self._upstream_connections[host][i].fileno() == fd:
-                    self._upstream_connections[host][i].close()
-                    del self._upstream_connections[host][i]
+            conns = self._upstream_connections[host]
+            for i in range(len(conns)):
+                if conns[i][0].fileno() == fd:
+                    conns[i][0].close()
+                    del conns[i]
                     found = True
                     break
             if found:
@@ -185,8 +202,6 @@ class Server(object):
     def _write_response(self, fd):
         """ Write client responses to the wire """
 
-        logging.debug('write_response(%d)', fd)
-
         assert fd in self._connections
         assert fd in self._responses
 
@@ -197,14 +212,27 @@ class Server(object):
         if not stream.ready():
             return
 
-        sent = self._connections[fd].send( stream.read() )
+        conn = self._connections[fd]
+        try:
+            sent = conn[0].send( stream.read() )
+        except:
+            self._close_connection(fd)
+            return
+
+        if sent == 0:
+            self._close_connection(fd)
+            return
+
+        # update atime
+        conn[2] = time.time()
         stream.ack( sent )
 
-        logging.debug('Wrote back %d bytes (%d)', sent, fd)
-
         if stream.complete():
-            logging.debug('Finished sending response (%d)', fd)
+            logging.debug('Sent req-%d to client-%d)', rid, fd)
             self._responses[fd].popleft()
+
+            #if len(self._responses[fd]) == 0:
+            #    self._epoll.modify(fd, select.EPOLLIN)
 
     def _write_request(self, fd):
         """ Write requests to the upstream wires """
@@ -213,28 +241,37 @@ class Server(object):
 
         if not fd in self._upstream_requests or \
                 len(self._upstream_requests[fd]) == 0:
-            logging.debug('No requests queued for (%d)', fd)
+            #logging.debug('No requests queued for server-%d', fd)
             return
 
         stream = self._upstream_requests[fd][0]
         if not stream.ready():
-            logging.debug('Request stream not ready (%d)', fd)
             return
 
         conn = self._get_upstream_socket(fd)
 
         assert conn != None
 
-        sent = conn.send( stream.read() )
+        try:
+            sent = conn[0].send( stream.read() )
+        except:
+            self._close_connection(fd)
+            return
+
+        if sent == 0:
+            self._close_connection(fd)
+            return
+
+        # update atime
+        conn[2] = time.time()
         stream.ack( sent )
 
-        logging.debug('Wrote %d bytes upstream (%d)', sent, fd)
-        # todo: something wrong here: stream buf is too short,
-        # or complete() isn't working...
-
         if stream.complete():
-            logging.debug('Finish sending request (%d)', fd)
+            #logging.debug('Sent request to server-%d', fd)
             self._upstream_requests[fd].popleft()
+
+            #if len(self._upstream_requests[fd]) == 0:
+            #    self._epoll.modify(fd, select.EPOLLIN)
 
     def _read_event(self, fd):
         """ Handle EPOLLIN: a client or upstream connection can be read """
@@ -247,14 +284,21 @@ class Server(object):
     def _read_requests(self, fd):
         """ Read incoming requests off the wire """
 
-        logging.debug('read_requests(%d)', fd)
-
         assert fd in self._connections
         
         if self._requests[fd] == None:
             return
 
-        data = self._connections[fd].recv(4096)
+        conn = self._connections[fd]
+
+        try:
+            data = conn[0].recv(4096)
+        except:
+            self._close_connection(fd)
+            return
+
+        # update atime
+        conn[2] = time.time()
         request = self._requests[fd]
         
         while len(data) != 0:
@@ -262,16 +306,20 @@ class Server(object):
             parsed = request.parse(data, len(data))
             data = data[parsed:]
 
-            if request.message_complete():
-
-                logging.debug('Request (%d):', fd)
-                logging.debug(str(request))
-                logging.debug('-------------')
+            if request.message_complete():                
 
                 key = request.url()
                 rid = self._get_next_id()
                 ufd = self._choose_upstream_fd()
-                
+                uconn = self._get_upstream_socket(ufd)
+
+                # inc request count for client
+                conn[5] += 1
+                uconn[5] += 1
+
+                logging.debug('REQUEST req-%d from client-%d (sending to server-%d):', rid, fd, ufd)
+                logging.debug('\n%s\n', str(request))
+
                 # tweak request as needed
                 request.headers()['accept-encoding'] = 'gzip'
 
@@ -280,14 +328,14 @@ class Server(object):
                 stream.write( str(request) )
                 stream.close()
 
-                self._responses[fd].append( (key, rid, HttpParser(), StreamBuf()) )
-
-                self._upstream_requests.setdefault(ufd, deque()) \
-                                .append( stream )
-
+                # watch the fd for r/w
+                #self._epoll.modify( fd, select.EPOLLIN | select.EPOLLOUT)
+                #self._epoll.modify(ufd, select.EPOLLIN | select.EPOLLOUT)
                 
-                self._stream_map.setdefault(ufd, deque()) \
-                                .append( (fd, rid) )
+                # queue the request
+                self._responses[fd].append( (key, rid, HttpParser(), StreamBuf()) )
+                self._upstream_requests.setdefault(ufd, deque()).append( stream )
+                self._stream_map.setdefault(ufd, deque()).append( (fd, rid) )
 
                 self._requests[fd] = HttpParser()
                 request = self._requests[fd]
@@ -296,18 +344,22 @@ class Server(object):
     def _read_responses(self, fd):
         """ Read responses from upstream servers off the wire """
 
-        logging.debug('read_responses(%d)', fd)
-
         conn = self._get_upstream_socket(fd)
 
-        assert conn != None
+        if conn is None:
+            return
+
         assert fd in self._stream_map
         
         if len(self._stream_map[fd]) == 0:
             return
 
-        data = conn.recv(4096)
-        
+        try:
+            data = conn[0].recv(4096)
+        except:
+            self._close_connection(fd)
+            return
+
         (dfd, rid) = self._stream_map[fd][0]
         (_, response, stream) = self._get_response_by_id(dfd, rid)
         
@@ -316,23 +368,37 @@ class Server(object):
             self._close_connection(fd)
             return
 
+        # update atime
+        conn[2] = time.time()
+
         while len(data) != 0:
             parsed = response.parse(data, len(data))
             data = data[parsed:]
 
             if response.message_complete():
 
-                logging.debug('Response (%d -> %d):', fd, dfd)
-                logging.debug(str(response))
-                logging.debug('-------------')
+                logging.debug('RESPONSE req-%d from server-%d to client-%d):',rid, fd, dfd)
+                logging.debug('\n%s\n', str(response))
 
-                response.headers()['server'] = 'Shellac/0.1.0a'
+                ka = response.keep_alive()
+                (timeout, maxr) = response.keep_alive_params()
+
+                headers = response.headers()
+                headers['server'] = 'Shellac/0.1.0a'
+                headers['keep-alive'] = 'timeout=5, max=100'
+                headers['connection'] = 'keep-alive'
+                headers.pop('accept-ranges', None)
+
                 stream.write( str(response) )
                 stream.close()
                 
-                if response.headers().get('connection','keep-alive').lower() == 'close':
+                if not ka:
                     self._close_connection(fd)
                     break
+
+                # timeout and max requests
+                conn[3] = timeout
+                conn[4] = maxr
 
                 self._stream_map[fd].popleft()
                 if len(self._stream_map[fd]) != 0:
@@ -342,6 +408,7 @@ class Server(object):
                         self._close_connection(fd)
                         break
                 else:
+                    #self._epoll.modify(fd, select.EPOLLOUT)
                     break
 
     def run(self):
@@ -350,6 +417,7 @@ class Server(object):
         try:
             while True:
                 events = self._epoll.poll(1)
+
                 for fd, event in events:
                     
                     if fd == self._socket.fileno():
@@ -362,6 +430,9 @@ class Server(object):
                         self._write_event(fd)
 
                     elif event & select.EPOLLHUP:
+                        self._close_connection(fd)
+
+                    elif event & select.EPOLLRDHUP:
                         self._close_connection(fd)
 
                     elif event & select.EPOLLERR:
