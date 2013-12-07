@@ -20,5 +20,6 @@ set xlabel "Request"
 set ylabel "Response time (ms)"
 
 # plot ab data using column 9 with smooth sbezier lines
-plot "baseline.dat" using 9 smooth sbezier with lines title "Apache2",\
-	 "shellac.dat" using 9 smooth sbezier with lines title "Shellac"
+plot "baseline.dat" using 9 smooth sbezier with lines title "Apache 2.2",\
+	 "varnish.dat" using 9 smooth sbezier with lines title "Varnish 3.0",\
+	 "shellac.dat" using 9 smooth sbezier with lines title "Shellac 0.1.0a"

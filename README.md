@@ -14,9 +14,9 @@ At its core Shellac is a high-performance, event-driven HTTP/1.1 proxy server de
 
 ## Performance
 
-Actual benchmarks will be forthcoming. In the meantime, below is a <b>very rough sketch</b> of one of the graphs that I would <i>like</i> to be able to draw. It corresponds to a standard <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a> benchmark of a cluster of <i>n</i> backend servers. The <code>ab</code> tool generates load by hitting a single URI repeatedly with 1 - <i>c</i> concurrent connections. I account for &beta; by arguing that Shellac is higher performance by design (event-driven, request pipelining, etc.) and has a higher expected cache hit rate. I argue &delta; by observing that in a distributed cache only a single copy of the object will be stored in RAM, as opposed to <i>n</i> copies (which also have to be generated <i>n</i> times!). It is also worth noting that a cache hit for Shellac should be served from local memory approximately 1/<i>n</i> of the time, so not all locality is lost.
+More benchmarks and data will be forthcoming. In the meantime, below is a small preliminary benchmark. It corresponds to a standard <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a> benchmark of a single server. The <code>ab</code> tool generates load by hitting a single URI repeatedly with 1 - <i>c</i> concurrent connections. 
 
-<img src="https://dl.dropboxusercontent.com/u/55111805/Shellac.png" />
+<img src="https://dl.dropboxusercontent.com/u/55111805/benchmark.png" />
 
 <b>Overview</b>
 

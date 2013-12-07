@@ -58,7 +58,10 @@ class Server(object):
         self._compress = compress
 
         # cache objects?
-        self.cache = cache
+        self._cache = cache
+
+        # Memcached client
+        self._mc = None
 
         # how long should entries live?
         self._ttl = ttl
@@ -72,6 +75,11 @@ class Server(object):
 
         self._epoll = select.epoll()
         self._epoll.register(self._socket.fileno(), select.EPOLLIN)
+
+        if self._cache:
+            self._mc = pylibmc.Client(['%s:%d' % cacher for cacher in caches],
+                                        binary=True, 
+                                        behaviors={'tcp_nodelay': True, 'ketama': True})
 
 
     def _get_upstream_fd(self, fd):
@@ -236,6 +244,7 @@ class Server(object):
         if len(self._responses[fd]) == 0:
             return
 
+        # note: response is None if this is from cache
         (key, response, stream) = self._responses[fd][0]
         if not stream.ready():
             return
@@ -331,12 +340,30 @@ class Server(object):
 
             if request.message_complete():                
 
-                #self._id_counter += 1
-
                 key = request.url()
-                #rid = self._id_counter
 
-                # todo: get based on this fd _get_upstream_fd(fd)
+                # KILL SWITCH: don't ask.
+                if key == '/kill':
+                    sys.exit(0)
+
+                # are we caching or just proxy?
+                if self._cache:
+                    blob = self._mc.get(key)
+                    if blob != None:
+                        # this is a cache hit!
+                        #logging.debug('Cache hit %s (size = %d)', key, len(blob))
+                        conn[6] += 1
+                        stream = StreamBuf( blob )
+                        stream.close()
+                        responsev = (key, None, stream)
+                        self._responses[fd].append( responsev )
+                        self._requests[fd] = HttpParser()
+                        self._epoll.modify(fd, select.EPOLLIN | select.EPOLLOUT | select.EPOLLRDHUP)
+                        request = self._requests[fd]
+                        continue
+
+
+                # going to have to look up stream
                 ufd = self._get_upstream_fd(fd)
                 uconn = self._upstream_connections[ufd]
                 
@@ -344,19 +371,11 @@ class Server(object):
                 conn[6] += 1
                 uconn[6] += 1
 
-                # KILL SWITCH
-                if key == '/kill':
-                    sys.exit(0)
-
-                #logging.debug('REQUEST req-%d from client-%d (sending to server-%d):', rid, fd, ufd)
-                #logging.debug('\n%s\n', str(request))
-
                 # tweak request as needed
                 request.headers()['accept-encoding'] = 'gzip'
 
                 # wrap it in a stream buffer
-                stream = StreamBuf()
-                stream.write( str(request) )
+                stream = StreamBuf( str(request) )
                 stream.close()
 
                 # watch the fd for r/w
@@ -367,8 +386,7 @@ class Server(object):
                 responsev = (key, HttpParser(), StreamBuf())
                 
                 self._responses[fd].append( responsev )
-                #self._response_index[rid] = responsev
-
+                
                 self._upstream_requests.setdefault(ufd, deque()).append( stream )
                 self._stream_map.setdefault(ufd, deque()).append( responsev )
 
@@ -406,8 +424,7 @@ class Server(object):
 
             if response.message_complete():
 
-                #logging.debug('RESPONSE req-%d from server-%d to client-%d):',rid, fd, dfd)
-                #logging.debug('\n%s\n', str(response))
+                # todo: cache the response!!!
 
                 ka = response.keep_alive()
                 (timeout, maxr) = response.keep_alive_params()
@@ -418,7 +435,9 @@ class Server(object):
                 headers['connection'] = 'keep-alive'
                 headers.pop('accept-ranges', None)
 
-                stream.write( str(response) )
+                obj = str(response)
+
+                stream.write( obj )
                 stream.close()
                 
                 if not ka:
@@ -428,6 +447,10 @@ class Server(object):
                 # timeout and max requests
                 conn[4] = timeout
                 conn[5] = maxr
+
+                if self._cache:
+                    #logging.debug('Cached %s\r\n%s\r\n', key, obj)
+                    self._mc.set(key, obj, time=self._ttl)
 
                 self._stream_map[fd].popleft()
 
@@ -537,7 +560,8 @@ def main():
         shellac = Server(servers, caches, 
                         port = args.port,
                         ttl = args.ttl,
-                        compress = args.compress)
+                        compress = args.compress,
+                        cache = len(caches) != 0)
         shellac.run()
     except (KeyboardInterrupt, IOError) as ex:
         print
