@@ -130,8 +130,6 @@ class Server(object):
         self._upstream_connections[conn_fd] = [conn, fd, time(), 0, -1, 0, 0]
         self._connections[fd][1] = conn_fd
 
-        #logging.debug('New upstream connection %d => %d', conn_fd, fd)
-
         return conn_fd
         
 
@@ -153,8 +151,6 @@ class Server(object):
         self._requests[fd]    = HttpParser()
         self._responses[fd]   = deque()
 
-        #logging.debug('New connection (%d)...', fd)
-    
     def _gc_connections(self):
         """ Clean up any idle client connections """
 
@@ -171,8 +167,6 @@ class Server(object):
     def _close_connection(self, fd):
         """ Handle EPOLLHUP: a client or upstream connection has been closed """
 
-        #logging.debug('Closed connection %d', fd)
-
         self._epoll.unregister(fd)
 
         if fd in self._connections:
@@ -180,13 +174,9 @@ class Server(object):
         else:
             self._close_upstream(fd)
         
-        #logging.debug('Closed connection (%d)', fd)
-
     def _close_client(self, fd):
         """ Clean up a client connection"""
 
-        #logging.debug('Closed client (%d)', fd)
-        
         up_fd = self._connections[fd][1]
 
         self._connections[fd][0].close()
@@ -207,8 +197,6 @@ class Server(object):
 
     def _close_upstream(self, fd):
         """ Clean up an upstream connection """
-
-        #logging.debug('Closed upstream (%d)', fd)
 
         dn_fd = self._upstream_connections[fd][1]
 
@@ -265,8 +253,6 @@ class Server(object):
         stream.ack( sent )
 
         if stream.complete():
-            #logging.debug('Sent req-%d to client-%d)', rid, fd)
-            #del self._response_index[rid]
             self._responses[fd].popleft()
 
             if len(self._responses[fd]) == 0:
@@ -274,8 +260,6 @@ class Server(object):
 
     def _write_request(self, fd):
         """ Write requests to the upstream wires """
-
-        #logging.debug('write_request(%d)', fd)
 
         if len(self._upstream_requests.get(fd, [])) == 0:
             return
@@ -301,7 +285,6 @@ class Server(object):
         stream.ack( sent )
 
         if stream.complete():
-            #logging.debug('Sent request to server-%d', fd)
             self._upstream_requests[fd].popleft()
 
             if len(self._upstream_requests[fd]) == 0:
@@ -351,7 +334,6 @@ class Server(object):
                     blob = self._mc.get(key)
                     if blob != None:
                         # this is a cache hit!
-                        #logging.debug('Cache hit %s (size = %d)', key, len(blob))
                         conn[6] += 1
                         stream = StreamBuf( blob )
                         stream.close()
@@ -423,9 +405,6 @@ class Server(object):
             data = data[parsed:]
 
             if response.message_complete():
-
-                # todo: cache the response!!!
-
                 ka = response.keep_alive()
                 (timeout, maxr) = response.keep_alive_params()
 
@@ -449,7 +428,6 @@ class Server(object):
                 conn[5] = maxr
 
                 if self._cache:
-                    #logging.debug('Cached %s\r\n%s\r\n', key, obj)
                     self._mc.set(key, obj, time=self._ttl)
 
                 self._stream_map[fd].popleft()
