@@ -1,11 +1,11 @@
 # output as png image
 set terminal png
 
-# save file to "out.png"
-set output "out.png"
+# save file
+set output "benchmark.png"
 
 # graph title
-set title "ab -n 8000 -c 100"
+set title "ab -n 100 -c 1"
 
 # nicer aspect ratio for image size
 set size 1,0.7
@@ -14,11 +14,11 @@ set size 1,0.7
 set grid y
 
 # x-axis label
-set xlabel "request"
+set xlabel "Request"
 
 # y-axis label
-set ylabel "response time (ms)"
+set ylabel "Response time (ms)"
 
-# plot data from "out.dat" using column 9 with smooth sbezier lines
-# and title of "nodejs" for the given data
-plot "out.dat" using 9 smooth sbezier with lines title "Shellac"
+# plot ab data using column 9 with smooth sbezier lines
+plot "baseline.dat" using 9 smooth sbezier with lines title "Apache2",\
+	 "shellac.dat" using 9 smooth sbezier with lines title "Shellac"

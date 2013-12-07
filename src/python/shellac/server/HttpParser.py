@@ -36,7 +36,9 @@ import os
 import zlib
 import cStringIO
 
-CHUNK_HEADER_RX = r'(\r\n)?[a-z0-9]+(;[a-z0-9]+="?[a-z0-9\-_]+"?)?\r\n'
+CHUNK_HEADER_RX = re.compile(r'(\r\n)?[a-z0-9]+(;[a-z0-9]+="?[a-z0-9\-_]+"?)?\r\n',
+                            flags = re.IGNORECASE)
+
 
 class HttpParser(object):
 
@@ -108,27 +110,25 @@ class HttpParser(object):
 
     def __str__(self):
 
-        def header_case(k):
-            return '-'.join(map(lambda x: x.capitalize(), k.split('-')))
+        #def header_case(k):
+        #    return '-'.join(map(lambda x: x.capitalize(), k.split('-')))
 
-        def header_value(v):
-            if isinstance(v, list):
-                return ', '.join(v)
-            else:
-                return v
+        #def header_value(v):
+        #    if isinstance(v, list):
+        #        return ', '.join(v)
+        #    else:
+        #        return v
 
-        s = ''
         if self.is_request():
-            s = '%s %s HTTP/%.1f' % (self.method(), self.url(), self.version())
+            s = '%s %s HTTP/%.1f\r\n' % (self.method(), self.url(), self.version())
         else:
-            s = 'HTTP/%.1f %d %s' % (self.version(), self.status(), self.message())
-        s += '\r\n'
+            s = 'HTTP/%.1f %d %s\r\n' % (self.version(), self.status(), self.message())
 
         self._headers.pop('transfer-encoding', None)
         self._headers.pop('content-length', None)
 
-        for k in self._headers:
-            s += '%s: %s\r\n' % (header_case(k), header_value(self._headers[k]))
+        #for k in self._headers:
+        #    s += '%s: %s\r\n' % (header_case(k), header_value(self._headers[k]))
         
         self._body.seek(0)
         b = self._body.read()
@@ -139,11 +139,15 @@ class HttpParser(object):
             b += zz.flush()
 
         if len(b) != 0:
-            s += 'Content-Length: %d\r\n' % len(b)
+            self._headers['content-length'] = len(b)
+
+        # fast header build
+        h = ''.join(['%s: %s\r\n' % \
+                    ('-'.join(map(lambda x: x.capitalize(), k.split('-'))), 
+                     ', '.join(v) if isinstance(v, list) else v) \
+                    for k, v in self._headers.viewitems()])
                  
-        s += '\r\n'
-        s += b
-        return s
+        return '%s%s\r\n%s' % (s, h, b)
 
     def parse(self, data, length):
         """ Parse data, return number of bytes consumed. """
@@ -258,7 +262,7 @@ class HttpParser(object):
 
         if self._content_len is None:
 
-            match = re.match(CHUNK_HEADER_RX, self._buf, flags=re.IGNORECASE)
+            match = CHUNK_HEADER_RX.match(self._buf)
 
             if match is None:
                 return length
