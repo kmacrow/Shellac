@@ -110,15 +110,6 @@ class HttpParser(object):
 
     def __str__(self):
 
-        #def header_case(k):
-        #    return '-'.join(map(lambda x: x.capitalize(), k.split('-')))
-
-        #def header_value(v):
-        #    if isinstance(v, list):
-        #        return ', '.join(v)
-        #    else:
-        #        return v
-
         if self.is_request():
             s = '%s %s HTTP/%.1f\r\n' % (self.method(), self.url(), self.version())
         else:
@@ -127,9 +118,6 @@ class HttpParser(object):
         self._headers.pop('transfer-encoding', None)
         self._headers.pop('content-length', None)
 
-        #for k in self._headers:
-        #    s += '%s: %s\r\n' % (header_case(k), header_value(self._headers[k]))
-        
         self._body.seek(0)
         b = self._body.read()
         

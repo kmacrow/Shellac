@@ -77,6 +77,7 @@ class Server(object):
         self._epoll.register(self._socket.fileno(), select.EPOLLIN)
 
         if self._cache:
+            # todo: potentially use a pool of clients
             self._mc = pylibmc.Client(['%s:%d' % cacher for cacher in caches],
                                         binary=True, 
                                         behaviors={'tcp_nodelay': True, 'ketama': True})
