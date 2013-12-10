@@ -1,58 +1,80 @@
-# Shellac: a distributed web "accelerator"
+# Shellac: a distributed web accelerator
 
-Shellac is an HTTP/1.1 caching proxy for Linux. It is designed to handle thousands of client connections at once, and aggressively cache content in a distributed pool of memory. Shellac can be used in a number of different configurations. In the simplest setup it can provide conceptually similar functionality to <a href="https://www.varnish-cache.org">Varnish</a> and <a href="http://www.squid-cache.org">Squid</a>, but Shellac allows you to grow your cache capacity well beyond a single host. In fact, it will let you "glue" together extra memory on as many machines as you can afford to cache expensive responses. 
+Shellac is an HTTP/1.1 caching proxy for Linux. It is designed to handle thousands of client connections at once, and aggressively cache content in a distributed key/value store. Shellac can be used in a number of different configurations. In the simplest setup it can provide conceptually similar functionality to <a href="https://www.varnish-cache.org">Varnish</a> and <a href="http://www.squid-cache.org">Squid</a>, but Shellac allows you to grow your cache capacity well beyond a single host. In fact, it will let you "glue" together extra memory on as many machines as you can afford to cache expensive responses. 
 
-Slides can be found <a href="http://goo.gl/OGjlVW">here</a>.
+<!-- todo link to slidedeck instead -->
+Slides (including graphs) can be found <a href="https://speakerdeck.com/kmacrow/shellac-a-distributed-web-accelerator">here</a>.
 
 ## Background
 
-Web accelerators have become quite popular for scaling web services, especially where expensive page rendering is involved. They can provide a performance boost by serving requests directly from memory, and help squeeze more out of web servers and applications by sheltering them from uncessary work. Traditionally, accelerators have been designed to use extra memory on a single machine to cache for a single web server. A service that load balances traffic across 8 web servers likely has 8 separate caches, one in front of each server. By contrast, Shellac attempts to be fast enough to cache for many upstream servers and instead of maintaining separate caches, creates a single logical cache out of extra memory across the cluster.  
+Web accelerators have become extremely popular for scaling web services, especially where expensive page rendering is involved. <a href="http://royal.pingdom.com/2012/07/11/how-popular-is-varnish/">Many of the top</a> news, e-commerce and blogging platforms make extensive use of HTTP caches in their networks. They can provide a performance boost by serving requests directly from memory, and help squeeze more out of web and application servers by sheltering them from uncessary work. 
+
+Traditionally, accelerators have been designed to use extra memory on a single machine to cache for a single web server. For example, a service that load balances traffic across 8 web servers likely has 8 separate caches, one in front of each server. By contrast, Shellac is fast enough to cache for many upstream servers and instead of maintaining separate caches, creates a single logical cache out of extra memory across the entire cluster.  
+
+## Related Projects
+
+There are a number of related projects, Wikipedia has a nice table enumerating features for many of them <a href="http://en.wikipedia.org/wiki/Web_accelerator#Comparison_2">here</a>.
+
+<a href="http://varnish-cache.org">Varnish Cache</a> and <a href="http://www.squid-cache.org">Squid Cache</a> are the most relevant. Varnish is a thread-per-request HTTP/1.1 proxy server capable building a local cache in RAM or on disk. Squid is also a thread-per-request caching server, but has a protocol-independent core. Squid can cache for a number of layer 7 protocols, including HTTP, FTP, SMTP, etc. In the load balancing category, Shellac's server architecture is inspired by <a href="http://haproxy.1wt.eu">HAproxy</a> and <a href="http://nginx.com">Nginx</a>.
 
 ## Architecture
 
-At its core Shellac is a high-performance, event-driven HTTP/1.1 proxy server designed specifically for modern Linux kernels. It manages thousands of concurrent client connections with <i>epoll</i> and avoids copies into user space with <i>splice</i>. The distributed cache is built on <a href="http://memcached.org">Memcached</a>. The current prototype is written in Python using fast C bindings to <a href="https://github.com/joyent/http-parser">http-parser</a>, libc's <i>splice</i>, and libmemcached. 
+At its core Shellac is a high-performance HTTP/1.1 proxy server designed specifically for modern Linux kernels. It manages thousands of concurrent client connections using level-triggered edge-polling (epoll) and multiplexes requests onto persistent connections upstream. The distributed cache is built on <a href="http://memcached.org">Memcached</a>. The current prototype is written in Python with a ctypes wrapper around libmemcached.
 
 ## Performance
 
-More benchmarks and data will be forthcoming. In the meantime, below is a small preliminary benchmark. It corresponds to a standard <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a> benchmark of a single server. The <code>ab</code> tool generates load by hitting a single URI repeatedly with 1 - <i>c</i> concurrent connections. 
-
-<img src="https://dl.dropboxusercontent.com/u/55111805/benchmark.png" />
+This section contains an overview of Shellac's performance characteristics, including some discussion of <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">Apache Benchmark</a> (ab) results for Shellac 0.1.0a "Hutch". The <code>ab</code> tool generates load by simulating a number of concurrent clients hitting the same URI for some total number of requests. 
 
 <b>Overview</b>
 
-Shellac has a fundamentally more scalable architecture than existing accelerators. It is event-driven and aggressively avoids copying data into user space. Also, just intuitively, the hit rate for a distributed cache will be higher than <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the handling server has generated it). Upstream applications are sufficiently slow as to make retrieving objects from memory on neighboring machines faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster: if your working set is 1 GB, then it is spread across all machines instead of duplicated on each one.
+Shellac has a fundamentally more scalable architecture than existing accelerators. The proxy server itself is single-threaded and event-driven, while the cache is built on the battle-proven Memcached. The hit rate for a distributed cache in this context is slightly higher than for <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the responding server has generated it). Upstream web applications are generally sufficiently slow as to make retrieving objects from memory on machines in the same datacenter faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster compared to isolated caches: if your working set is 1 GB, then it is spread across all machines instead of duplicated on each one. A distributed cache also allows you to better separate concerns: cache memory does not have to be on the same machine as Shellac or your web/application servers. Consistent hashing ensures that if a cache node fails the entire cache is not lost. 
 
-<b>Optimizations</b>
+<b>Python</b>
 
-Shellac uses consistent hashing to avoid rebuilding the entire cache in the event of node failure, however, no effort is made to improve locality. The current prototype does not support session tagging/routing, but if it did one could imagine caching accessed objects locally to improve locality for future requests in the same session. This is future work. Also, there is an opportunity to transform or analyze objects before they are cached. Shellac currently doesn't take advantage of the opportunity to do anything smart.  
+Shellac 0.1.0a "Hutch" is a proof of concept written in vanilla Python and tested under CPython. It does not use any frameworks and has no significant dependencies outside of the standard library. Being a single-threaded "reactor", Shellac largely avoids all of the problems associated with the Python Global Interpreter Lock (GIL), which is known to <a href="http://www.dabeaz.com/python/GIL.pdf">plague</a> multi-threaded programs. Shellac is not compute bound, but every effort is made to push iteration down into native code via language constructs (i.e. list generators) or native functions (map, filter, join, etc.) Unfortunately, all function calls (and especially method calls) present relatively significant overhead and not all iteration can be offloaded to native code. In particular, Shellac's main event loop suffers as a result of these and other overheads. There is a fun overview of things to do (and to avoid) in writing performant Python <a href="https://wiki.python.org/moin/PythonSpeed/PerformanceTips">here</a>.  
 
 <b>Benchmarks</b>
 
-Tools: <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a>, <a href="http://www.joedog.org/siege-home/">siege</a>, <a href="http://www.hpl.hp.com/research/linux/httperf/">httperf</a>.
+Tools used: <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a>, <a href="http://www.joedog.org/siege-home/">siege</a>, <a href="http://www.hpl.hp.com/research/linux/httperf/">httperf</a>.
 
-<!--
-First of all, I'd like to benchmark RPS for Nginx on its own, and then put Shellac in front of it (without caching) to get a lower-bound on Shellac's overhead. With that I would like to look at Shellac vs. Varnish with a single web server, and then multiple servers using HAproxy to load balance. Finally, it would be interesting to compare Shellac and HAproxy itself. I would not expect the Shellac prototype to fare well against the battle-hardened HAproxy, but it might give some indication of the Python overhead.
--->
+In all of the benchmarks that follow, HTTP/1.1 Keep-Alive (request pipelining) and Gzip compression were enabled. The Apache Benchmark (ab) command looks something like this:
 
-<!--
-## Configurations
+```bash
+ab -k -n 10000 -c 1000 -g out.dat -H "Accept-Encoding: gzip" http://127.0.0.1/page.php
+```
+I use a bare bones Apache 2.2 instance as a baseline for performance. Then I compare the Shellac "Hutch" prototype to the commercially-supported, open-source Varnish Cache (<a href="http://varnish-cache.org">varnish-cache.org</a>). Varnish is easily the most popular HTTP/1.1 cache around, known for it's reliability, performance and flexibility via <a href="https://www.varnish-cache.org/trac/wiki/VCL">VCL</a>. I compare Apache, Varnish and Shellac across three metrics: requests served per second (RPS), peak memory usage per node, and transfer rate. The benchmarks were run on a cluster of 4 <tt>m1.large</tt> AWS instances (quad-core Xeon, 8GB RAM, moderate network performance) with an Elastic load balancer in front.
 
-There are two distinct ways to use Shellac, and a third hybrid option. 
+<img src="https://dl.dropboxusercontent.com/u/55111805/ab.png" />
+<center>
+<i>Apache, Varnish and Shellac serving 10K requests (total) from 1K concurrent clients.</i>
+</center>
 
-<b>Accelerator</b>
+The above graph shows all three servers under load. Not surprisingly (but maybe surprisingly!) Apache is the slowest, while Varnish and Shellac are neck-and-neck. Zooming in we can see that Shellac is marginally faster (until the end), even in its worst of three vs. Varnish's best of three runs for this benchmark.
 
-You can replace each instance of Varnish with Shellac to increase vertical scalability and free up RAM for your web servers and applications.
+<img src="https://dl.dropboxusercontent.com/u/55111805/ab-2.png" />
+<center>
+<i>Varnish and Shellac serving 10K requests (total) from 1K concurrent clients.</i>
+</center> 
 
-<b>Load balancer</b>
+Zooming in even further on the left side of the graph reveals just how close Varnish and Shellac are. Again, this is Shellac's worst run plotted against Varnish's best. <b>Perhaps the most interesting thing here is that the Shellac prototype is not crashing under this load</b>. 
 
-You can use Shellac as a load balancer for your backend web servers to scale out and increase availability.
+<img src="https://dl.dropboxusercontent.com/u/55111805/ab-3.png" />
 
-<b>Accelerator + load balancer</b>
+Looking at the mean responses per second (RPS) it is clear that Shellac is quite competitive with Varnish across three different benchmarks. <i>Static</i> involves serving a small static page, <i>Dynamic 1</i> involves serving a trivial dynamic page and <i>Dynamic 3</i> simulates serving a non-trivial dynamic page comparable to rendering a blog article. This shows Apache and Varnish's best of three runs on each benchmark against Shellac's worst. In Shellac's <i>Dynamic 2</i> run shown here problems with Memcached caused Shellac to hit Apache more than it should have. 
 
-You can put an instance of Shellac in front of all of your backend servers and use their (or other machines' memory) as a single cache.
--->
+<img src="https://dl.dropboxusercontent.com/u/55111805/rps.png" /> 
+
+Finally, a somewhat superficial look at memory usage across the cluster demonstrates that even as a Python prototype, Shellac's memory overheads are very comparable to those of Varnish. This graph shows mean <b>peak</b> memory usage for a node in the cluster. Again, Shellac's worst against the others' best. In <i>Dynamic 2</i> for Shellac we can see the cost of hitting Apache when Memcached sputtered.
+
+<img src="https://dl.dropboxusercontent.com/u/55111805/mem.png" />  
+
+## Conclusion
+
+Shellac is nowhere near ready for production, however, early results are quite promising. In the worst case Shellac keeps pace with Varnish, a mature commercially-maintained server running optimized native code. In many cases, Shellac is simply faster. Furthermore, the benchmarks I have been able to complete to date are not extremely representative of the type of (production) load that Shellac is designed for. Future work will involve stabilizing the server, ensuring HTTP/1.1 compliance, and eventually a port to C. 
 
 ## Getting started
+
+Shellac 0.1.0a "Hutch" can be downloaded <a href="https://github.com/kmacrow/Shellac/releases">here</a>. The code contained in that release snapshot was used to run the benchmarks discussed here.
 
 Shellac is built and tested on Ubuntu 12.04 (Precise). You should grab the latest release <a href="https://github.com/kmacrow/Shellac/releases">here</a>, and do this:
 
@@ -66,7 +88,7 @@ And then to run the server,
 
 ```bash
 $ python -m SimpleHTTPServer 8080
-$ shellac --port 9090 --origin localhost:8080 
+$ shellac -s localhost:8080 -c localhost -p 9090
 ```
 See <code>shellac -h</code> for more options and details.
 
