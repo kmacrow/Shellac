@@ -48,7 +48,7 @@ ab -k -n 10000 -c 1000 -g out.dat -H "Accept-Encoding: gzip" http://127.0.0.1/pa
 ```
 A bare bones Apache 2.2 instance was used as a baseline for performance. The Shellac "Hutch" prototype is then compared to the commercially-supported, open-source Varnish Cache (<a href="http://varnish-cache.org">varnish-cache.org</a>). Varnish is easily the most popular HTTP/1.1 cache around, known for it's reliability, performance and flexibility via <a href="https://www.varnish-cache.org/trac/wiki/VCL">VCL</a>. Three metrics were evaluated: requests served per second (RPS), peak memory usage per node, and transfer rate. The benchmarks were run on a cluster of 4 <tt>m1.large</tt> AWS instances (quad-core Xeon, 8GB RAM, moderate network performance) with an Elastic load balancer in front. 
 
-<b>Aside:</b> Because my last statistics professor, frothing at the mouth, chased me out of the Math Annex with a blackboard pointer, I elected to be conservative and in all cases plot Shellac's worst of three runs against Apache and Varnish's best of three.  
+<b>Aside:</b> Because my last statistics professor, frothing at the mouth, chased me out of the Math Annex with a blackboard pointer<sup>1</sup>, I elected to be conservative and in all cases plot Shellac's worst of three runs against Apache and Varnish's best of three.  
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/ab.png" />
 <div align="center">
@@ -77,6 +77,8 @@ Finally, a somewhat superficial look at memory usage across the cluster demonstr
 ## Conclusion
 
 Shellac is nowhere near ready for business, however, the early results are quite promising. In the worst case Shellac keeps pace with Varnish, a mature commercially-maintained server running optimized native code. Furthermore, the benchmarks I have been able to complete to date are not extremely representative of the type of load that Shellac is designed for. Future work will involve stabilizing the server, extending and automating the perf. test bench, ensuring HTTP/1.1 compliance, and eventually a port to C. In the slightly longer term, replacing Memcached with a purpose-built cache will likely make sense. Finding a way to expose low-level counters, queue depths, cache statistics, etc. for real-time analysis, logging, and monitoring are also priorities. A sketch of the roadmap can be found <a href="https://github.com/kmacrow/Shellac/issues/milestones">here</a>.
+
+1. Okay, that didn't really happen. But statistics has not historically been my strong suit.
 
 ## Getting started
 
