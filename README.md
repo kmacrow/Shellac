@@ -23,7 +23,7 @@ At its core Shellac is a high-performance HTTP/1.1 proxy server designed specifi
 
 ## Performance
 
-This section contains an overview of Shellac's performance characteristics, including some discussion of <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">Apache Benchmark</a> (ab) results for Shellac 0.1.0a "Hutch". The <code>ab</code> tool generates load by simulating a number of concurrent clients hitting the same URI for some total number of requests. 
+This section contains an overview of Shellac's performance characteristics, including some discussion of <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">Apache Benchmark</a> (ab) results for Shellac 0.1.0a "Hutch". 
 
 <b>Overview</b>
 
@@ -41,7 +41,7 @@ Shellac's reasonably good performance in benchmarks is largely thanks to extensi
 
 Tools used: <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a>, <a href="http://www.joedog.org/siege-home/">siege</a>, <a href="http://www.hpl.hp.com/research/linux/httperf/">httperf</a>.
 
-In all of the benchmarks that follow, HTTP/1.1 Keep-Alive (request pipelining) and Gzip compression were enabled. The Apache Benchmark (ab) command looks something like this:
+In all of the benchmarks that follow, HTTP/1.1 Keep-Alive (request pipelining) and Gzip compression were enabled. The <code>ab</code> tool generates load by simulating a number of concurrent clients hitting the same URI for some total number of requests. The Apache Benchmark (ab) command looks something like this:
 
 ```bash
 ab -k -n 10000 -c 1000 -g out.dat -H "Accept-Encoding: gzip" http://127.0.0.1/page.php
