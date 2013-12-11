@@ -39,7 +39,7 @@ Shellac's reasonably good performance in benchmarks is largely thanks to extensi
 
 <b>Benchmarks</b>
 
-Tools used: <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a>, <a href="http://www.joedog.org/siege-home/">siege</a>, <a href="http://www.hpl.hp.com/research/linux/httperf/">httperf</a>.
+Tools used: <a href="http://httpd.apache.org/docs/2.2/programs/ab.html">ab</a>, <a href="http://www.joedog.org/siege-home/">siege</a>, <a href="http://www.hpl.hp.com/research/linux/httperf/">httperf</a>, <a href="http://dag.wiee.rs/home-made/dstat/">dstat</a>, <a href="http://www.gnuplot.info">gnuplot</a>.
 
 In all of the benchmarks that follow, HTTP/1.1 Keep-Alive (request pipelining) and Gzip compression were enabled. The <code>ab</code> tool generates load by simulating a number of concurrent clients hitting the same URI for some total number of requests. The Apache Benchmark (ab) command looks something like this:
 
@@ -70,7 +70,7 @@ Looking at the mean RPS (below) it is clear that Shellac is quite competitive wi
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/rps.png" /> 
 
-Finally, a somewhat superficial look at memory usage across the cluster demonstrates that even as a Python prototype, Shellac's memory overheads are very comparable to those of Varnish. This graph shows mean <b>peak</b> memory usage for a node in the cluster. Again, Shellac's worst against the others' best. In <i>Dynamic 2</i> for Shellac we can see the cost of hitting Apache when Memcached sputtered.
+Finally, a somewhat superficial look at memory usage across the cluster demonstrates that even as a Python prototype, Shellac's memory overheads are very comparable to those of Varnish. This graph shows mean <b>peak</b> memory usage for a node in the cluster. Again, Shellac's worst against the others' best. In <i>Dynamic 2</i> for Shellac we can see the cost of hitting Apache when Memcached sputtered. Despite comparable peak usage, I state without proof that Shellac's memory overhead was actually significantly lower than Varnish.
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/mem.png" />  
 
