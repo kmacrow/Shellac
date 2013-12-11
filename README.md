@@ -66,7 +66,7 @@ Zooming in even further on the left side of the graph reveals just how close Var
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/ab-3.png" />
 
-Looking at the mean responses per second (RPS) it is clear that Shellac is quite competitive with Varnish across three different benchmarks. <i>Static</i> involves serving a small static page, <i>Dynamic 1</i> involves serving a trivial dynamic page and <i>Dynamic 3</i> simulates serving a non-trivial dynamic page comparable to rendering a blog article. In Shellac's <i>Dynamic 2</i> run shown here problems with Memcached caused Shellac to hit Apache more than it should have, which manifests itself as higher memory usage in next graph. 
+Looking at the mean RPS (below) it is clear that Shellac is quite competitive with Varnish across three different benchmarks. <i>Static</i> involves serving a small static page, <i>Dynamic 1</i> involves serving a trivial dynamic page and <i>Dynamic 3</i> simulates serving a non-trivial dynamic page comparable to rendering a blog article. In Shellac's <i>Dynamic 2</i> run shown here problems with Memcached caused Shellac to hit Apache more than it should have, which manifests itself as higher memory usage in next graph. 
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/rps.png" /> 
 
