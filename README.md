@@ -27,11 +27,15 @@ This section contains an overview of Shellac's performance characteristics, incl
 
 <b>Overview</b>
 
-Shellac has a fundamentally more scalable architecture than existing accelerators. The proxy server itself is single-threaded and event-driven, while the cache is built on the battle-proven Memcached. The hit rate for a distributed cache in this context is slightly higher than for <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the responding server has generated it). Upstream web applications are generally sufficiently slow as to make retrieving objects from memory on machines in the same datacenter faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster compared to isolated caches: if your working set is 1 GB, then it is spread across all machines instead of duplicated on each one. A distributed cache also allows you to better separate concerns: cache memory does not have to be on the same machine as Shellac or your web/application servers. Consistent hashing ensures that if a cache node fails the entire cache is not lost. 
+Shellac has a fundamentally more scalable architecture than existing accelerators. The proxy server itself is single-threaded and event-driven, while the cache is built on the battle-proven Memcached. The expected hit rate for a distributed cache in this context is slightly higher than for <i>n</i> local caches (if any server in the cluster has already generated the cacheable object it will be a hit, as opposed to only if the responding server has generated it). Upstream web applications are generally sufficiently slow as to make retrieving objects from memory on machines in the same datacenter faster than regenerating the content locally. Furthermore, a distributed cache reduces overall memory usage (across the cluster) by a factor of the number of web servers in your cluster compared to isolated caches: if your working set is 1 GB, then it is spread across all machines instead of duplicated on each one. A distributed cache also allows you to better separate concerns: cache memory does not have to be on the same machine as Shellac or your web/application servers. Also, consistent hashing ensures that if a cache node fails the entire cache is not lost. 
 
 <b>Python</b>
 
 Shellac 0.1.0a "Hutch" is a proof of concept written in vanilla Python and tested under CPython. It does not use any frameworks and has no significant dependencies outside of the standard library. Being a single-threaded "reactor", Shellac largely avoids all of the problems associated with the Python Global Interpreter Lock (GIL), which is known to <a href="http://www.dabeaz.com/python/GIL.pdf">plague</a> multi-threaded programs. Shellac is not compute bound, but every effort is made to push iteration down into native code via language constructs (i.e. list generators) or native functions (map, filter, join, etc.) Unfortunately, all function calls (and especially method calls) present relatively significant overhead and not all iteration can be offloaded to native code. In particular, Shellac's main event loop suffers as a result of these and other overheads. There is a fun overview of things to do (and to avoid) in writing performant Python <a href="https://wiki.python.org/moin/PythonSpeed/PerformanceTips">here</a>.  
+
+<b>Profiling</b>
+
+Shellac's reasonably good performance in benchmarks is largely thanks to extensive profiling and tweaking with <a href="http://docs.python.org/2/library/profile.html#module-cProfile">cProfile</a>, which was able to weed out a number of surprising bottlenecks. Hand optimizing string concatenations, regular expression compilation, <code>dict</code> accesses via <code>get()</code> and a number of other things proved to be significant performance wins. Profiling also lead to a more efficient use of epoll that saved tens of thousands of function calls by continuously updating which events the server is interested in for each socket.   
 
 <b>Benchmarks</b>
 
@@ -42,25 +46,27 @@ In all of the benchmarks that follow, HTTP/1.1 Keep-Alive (request pipelining) a
 ```bash
 ab -k -n 10000 -c 1000 -g out.dat -H "Accept-Encoding: gzip" http://127.0.0.1/page.php
 ```
-I use a bare bones Apache 2.2 instance as a baseline for performance. Then I compare the Shellac "Hutch" prototype to the commercially-supported, open-source Varnish Cache (<a href="http://varnish-cache.org">varnish-cache.org</a>). Varnish is easily the most popular HTTP/1.1 cache around, known for it's reliability, performance and flexibility via <a href="https://www.varnish-cache.org/trac/wiki/VCL">VCL</a>. I compare Apache, Varnish and Shellac across three metrics: requests served per second (RPS), peak memory usage per node, and transfer rate. The benchmarks were run on a cluster of 4 <tt>m1.large</tt> AWS instances (quad-core Xeon, 8GB RAM, moderate network performance) with an Elastic load balancer in front.
+A bare bones Apache 2.2 instance was used as a baseline for performance. The Shellac "Hutch" prototype is then compared to the commercially-supported, open-source Varnish Cache (<a href="http://varnish-cache.org">varnish-cache.org</a>). Varnish is easily the most popular HTTP/1.1 cache around, known for it's reliability, performance and flexibility via <a href="https://www.varnish-cache.org/trac/wiki/VCL">VCL</a>. Three metrics were evaluated: requests served per second (RPS), peak memory usage per node, and transfer rate. The benchmarks were run on a cluster of 4 <tt>m1.large</tt> AWS instances (quad-core Xeon, 8GB RAM, moderate network performance) with an Elastic load balancer in front. 
+
+<b>Aside:</b> Because my last statistics professor, frothing at the mouth, chased me out of the Math Annex with a blackboard pointer, I elected to be conservative and plot Shellac's worst of three runs against Apache and Varnish's best of three.  
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/ab.png" />
-<center>
+<div align="center">
 <i>Apache, Varnish and Shellac serving 10K requests (total) from 1K concurrent clients.</i>
-</center>
+</div>
 
-The above graph shows all three servers under load. Not surprisingly (but maybe surprisingly!) Apache is the slowest, while Varnish and Shellac are neck-and-neck. Zooming in we can see that Shellac is marginally faster (until the end), even in its worst of three vs. Varnish's best of three runs for this benchmark.
+The above graph shows all three servers under load. Not surprisingly (but maybe surprisingly!) Apache is the slowest, while Varnish and Shellac are neck-and-neck. Zooming in we can see that Shellac is marginally faster (until the end), even in its worst of three runs.
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/ab-2.png" />
-<center>
+<div align="center">
 <i>Varnish and Shellac serving 10K requests (total) from 1K concurrent clients.</i>
-</center> 
+</div> 
 
-Zooming in even further on the left side of the graph reveals just how close Varnish and Shellac are. Again, this is Shellac's worst run plotted against Varnish's best. <b>Perhaps the most interesting thing here is that the Shellac prototype is not crashing under this load</b>. 
+Zooming in even further on the left side of the graph reveals just how close Varnish and Shellac are. <b>Perhaps the most interesting thing here is that the Shellac prototype is not crashing under this load</b>. 
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/ab-3.png" />
 
-Looking at the mean responses per second (RPS) it is clear that Shellac is quite competitive with Varnish across three different benchmarks. <i>Static</i> involves serving a small static page, <i>Dynamic 1</i> involves serving a trivial dynamic page and <i>Dynamic 3</i> simulates serving a non-trivial dynamic page comparable to rendering a blog article. This shows Apache and Varnish's best of three runs on each benchmark against Shellac's worst. In Shellac's <i>Dynamic 2</i> run shown here problems with Memcached caused Shellac to hit Apache more than it should have. 
+Looking at the mean responses per second (RPS) it is clear that Shellac is quite competitive with Varnish across three different benchmarks. <i>Static</i> involves serving a small static page, <i>Dynamic 1</i> involves serving a trivial dynamic page and <i>Dynamic 3</i> simulates serving a non-trivial dynamic page comparable to rendering a blog article. In Shellac's <i>Dynamic 2</i> run shown here problems with Memcached caused Shellac to hit Apache more than it should have, which manifests itself as higher memory usage in next graph. 
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/rps.png" /> 
 
@@ -70,7 +76,7 @@ Finally, a somewhat superficial look at memory usage across the cluster demonstr
 
 ## Conclusion
 
-Shellac is nowhere near ready for production, however, early results are quite promising. In the worst case Shellac keeps pace with Varnish, a mature commercially-maintained server running optimized native code. In many cases, Shellac is simply faster. Furthermore, the benchmarks I have been able to complete to date are not extremely representative of the type of (production) load that Shellac is designed for. Future work will involve stabilizing the server, ensuring HTTP/1.1 compliance, and eventually a port to C. 
+Shellac is nowhere near ready for business, however, the early results are quite promising. In the worst case Shellac keeps pace with Varnish, a mature commercially-maintained server running optimized native code. Furthermore, the benchmarks I have been able to complete to date are not extremely representative of the type of load that Shellac is designed for. Future work will involve stabilizing the server, extending and automating the perf. test bench, ensuring HTTP/1.1 compliance, and eventually a port to C. In the slightly longer term, replacing Memcached with a purpose-built cache will likely make sense. Finding a way to expose low-level counters, queue depths, cache statistics, etc. for real-time analysis, logging, and monitoring are also priorities. A sketch of the roadmap can be found <a href="https://github.com/kmacrow/Shellac/issues/milestones">here</a>.
 
 ## Getting started
 
@@ -98,6 +104,8 @@ See <code>shellac -h</code> for more options and details.
 	<dt>Kalan MacRow</dt>
 	<dd><a href="#">@k16w</a></dd>
 </dl>
+
+Feel free to contact me or submit a pull request if you are interested in contributing. 
 
 Copyright &copy; Kalan MacRow, 2013-14 &mdash; Licensed under The MIT License (MIT)
 
