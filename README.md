@@ -48,7 +48,7 @@ ab -k -n 10000 -c 1000 -g out.dat -H "Accept-Encoding: gzip" http://127.0.0.1/pa
 ```
 A bare bones Apache 2.2 instance was used as a baseline for performance. The Shellac "Hutch" prototype is then compared to the commercially-supported, open-source Varnish Cache (<a href="http://varnish-cache.org">varnish-cache.org</a>). Varnish is easily the most popular HTTP/1.1 cache around, known for it's reliability, performance and flexibility via <a href="https://www.varnish-cache.org/trac/wiki/VCL">VCL</a>. Three metrics were evaluated: requests served per second (RPS), peak memory usage per node, and transfer rate. The benchmarks were run on a cluster of 4 <tt>m1.large</tt> AWS instances (quad-core Xeon, 8GB RAM, moderate network performance) with an Elastic load balancer in front. 
 
-<b>Aside:</b> Because my last statistics professor, frothing at the mouth, chased me out of the Math Annex with a blackboard pointer, I elected to be conservative and plot Shellac's worst of three runs against Apache and Varnish's best of three.  
+<b>Aside:</b> Because my last statistics professor, frothing at the mouth, chased me out of the Math Annex with a blackboard pointer, I elected to be conservative and in all cases plot Shellac's worst of three runs against Apache and Varnish's best of three.  
 
 <img src="https://dl.dropboxusercontent.com/u/55111805/ab.png" />
 <div align="center">
